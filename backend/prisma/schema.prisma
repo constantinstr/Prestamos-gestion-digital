@@ -1,0 +1,341 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------
+// RBAC
+// ---------------------------------------------------------
+model Role {
+  id          Int       @id @default(autoincrement())
+  nombre      String    @unique
+  descripcion String?
+  usuarios    Usuario[]
+
+  @@map("roles")
+}
+
+model Sucursal {
+  id        Int        @id @default(autoincrement())
+  nombre    String
+  direccion String
+  telefono  String?
+  activa    Boolean    @default(true)
+  createdAt DateTime   @default(now()) @map("created_at")
+  usuarios  Usuario[]
+  prestamos Prestamo[]
+  pagos     Pago[]
+
+  @@map("sucursales")
+}
+
+model Usuario {
+  id           String    @id @default(uuid())
+  nombre       String
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  rol          Role      @relation(fields: [rolId], references: [id])
+  rolId        Int       @map("rol_id")
+  sucursal     Sucursal? @relation(fields: [sucursalId], references: [id])
+  sucursalId   Int?      @map("sucursal_id")
+  activo       Boolean   @default(true)
+  ultimoLogin  DateTime? @map("ultimo_login")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  solicitudesResueltas  Solicitud[]          @relation("AnalistaSolicitud")
+  documentosVerificados DocumentoKyc[]       @relation("VerificadorDocumento")
+  prestamosEntregados   Prestamo[]           @relation("UsuarioEntrega")
+  pagosRegistrados      Pago[]               @relation("CajeroPago")
+  tasasCreadas          ConfiguracionTasa[]  @relation("CreadorTasa")
+  mensajesGenerados     MensajeWhatsappLog[] @relation("GeneradorMensaje")
+  auditoria             Auditoria[]
+
+  @@map("usuarios")
+}
+
+// ---------------------------------------------------------
+// Clientes y KYC
+// ---------------------------------------------------------
+enum EstadoCliente {
+  ACTIVO
+  INACTIVO
+  BLOQUEADO
+}
+
+model Cliente {
+  id              String        @id @default(uuid())
+  dni             String        @unique
+  cuil            String        @unique
+  nombres         String
+  apellidos       String
+  fechaNacimiento DateTime      @map("fecha_nacimiento") @db.Date
+  telefono        String
+  email           String?
+  direccion       String?
+  estado          EstadoCliente @default(ACTIVO)
+  scoringInterno  Int?          @map("scoring_interno")
+  passwordHash    String?       @map("password_hash")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  documentos       DocumentoKyc[]
+  solicitudes      Solicitud[]
+  prestamos        Prestamo[]
+  mensajesWhatsapp MensajeWhatsappLog[]
+
+  @@map("clientes")
+}
+
+enum TipoDocumentoKyc {
+  DNI_FRENTE
+  DNI_DORSO
+  SELFIE
+  FIRMA
+}
+
+model DocumentoKyc {
+  id              String           @id @default(uuid())
+  cliente         Cliente          @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId       String           @map("cliente_id")
+  tipo            TipoDocumentoKyc
+  storageKey      String           @map("storage_key")
+  hashIntegridad  String           @map("hash_integridad")
+  livenessScore   Decimal?         @map("liveness_score") @db.Decimal(5, 2)
+  verificado      Boolean          @default(false)
+  verificadoPor   Usuario?         @relation("VerificadorDocumento", fields: [verificadoPorId], references: [id])
+  verificadoPorId String?          @map("verificado_por")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  @@index([clienteId])
+  @@map("documentos_kyc")
+}
+
+// ---------------------------------------------------------
+// Configuración de tasas
+// ---------------------------------------------------------
+model ConfiguracionTasa {
+  id                    Int       @id @default(autoincrement())
+  nombre                String
+  tna                   Decimal   @db.Decimal(6, 3)
+  tea                   Decimal   @db.Decimal(6, 3)
+  moraDiariaPct         Decimal   @default(0) @map("mora_diaria_pct") @db.Decimal(6, 3)
+  gastosAdministrativos Decimal   @default(0) @map("gastos_administrativos") @db.Decimal(12, 2)
+  montoMinimo           Decimal   @map("monto_minimo") @db.Decimal(12, 2)
+  montoMaximo           Decimal   @map("monto_maximo") @db.Decimal(12, 2)
+  cuotasMinimas         Int       @map("cuotas_minimas")
+  cuotasMaximas         Int       @map("cuotas_maximas")
+  vigenteDesde          DateTime  @default(now()) @map("vigente_desde")
+  vigenteHasta          DateTime? @map("vigente_hasta")
+  activo                Boolean   @default(true)
+  creadoPor             Usuario?  @relation("CreadorTasa", fields: [creadoPorId], references: [id])
+  creadoPorId           String?   @map("creado_por")
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  solicitudes Solicitud[]
+
+  @@map("configuracion_tasas")
+}
+
+// ---------------------------------------------------------
+// Solicitudes y motor crediticio
+// ---------------------------------------------------------
+enum CanalSolicitud {
+  WEB
+  APP
+  SUCURSAL
+}
+
+enum EstadoSolicitud {
+  PENDIENTE
+  CONSULTANDO_BURO
+  PRE_APROBADA
+  EN_REVISION
+  APROBADA
+  RECHAZADA_AUTOMATICA
+  RECHAZADA_MANUAL
+  CANCELADA
+}
+
+model Solicitud {
+  id                   String             @id @default(uuid())
+  cliente              Cliente            @relation(fields: [clienteId], references: [id])
+  clienteId            String             @map("cliente_id")
+  montoSolicitado      Decimal            @map("monto_solicitado") @db.Decimal(12, 2)
+  cantidadCuotas       Int                @map("cantidad_cuotas")
+  canal                CanalSolicitud     @default(WEB)
+  estado               EstadoSolicitud    @default(PENDIENTE)
+  analista             Usuario?           @relation("AnalistaSolicitud", fields: [analistaId], references: [id])
+  analistaId           String?            @map("analista_id")
+  motivoRechazo        String?            @map("motivo_rechazo")
+  configuracionTasa    ConfiguracionTasa? @relation(fields: [configuracionTasasId], references: [id])
+  configuracionTasasId Int?               @map("configuracion_tasas_id")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+  resueltoAt           DateTime?          @map("resuelto_at")
+
+  logsBuro LogBuro[]
+  prestamo Prestamo?
+
+  @@index([clienteId])
+  @@index([estado])
+  @@map("solicitudes")
+}
+
+enum ProveedorBuro {
+  NOSIS
+  VERAZ
+  BCRA
+}
+
+model LogBuro {
+  id            String        @id @default(uuid())
+  solicitud     Solicitud     @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  solicitudId   String        @map("solicitud_id")
+  proveedor     ProveedorBuro
+  score         Int?
+  situacionBcra Int?          @map("situacion_bcra")
+  respuestaRaw  Json          @map("respuesta_raw")
+  consultadoEn  DateTime      @default(now()) @map("consultado_en")
+
+  @@index([solicitudId])
+  @@map("logs_buro")
+}
+
+// ---------------------------------------------------------
+// Préstamos y cuotas
+// ---------------------------------------------------------
+enum EstadoPrestamo {
+  PENDIENTE_ENTREGA
+  ACTIVO
+  EN_MORA
+  FINALIZADO
+  CANCELADO
+}
+
+model Prestamo {
+  id                String         @id @default(uuid())
+  solicitud         Solicitud      @relation(fields: [solicitudId], references: [id])
+  solicitudId       String         @unique @map("solicitud_id")
+  cliente           Cliente        @relation(fields: [clienteId], references: [id])
+  clienteId         String         @map("cliente_id")
+  montoOtorgado     Decimal        @map("monto_otorgado") @db.Decimal(12, 2)
+  tna               Decimal        @db.Decimal(6, 3)
+  tea               Decimal        @db.Decimal(6, 3)
+  cantidadCuotas    Int            @map("cantidad_cuotas")
+  fechaDesembolso   DateTime?      @map("fecha_desembolso") @db.Date
+  estado            EstadoPrestamo @default(PENDIENTE_ENTREGA)
+  sucursalEntrega   Sucursal?      @relation(fields: [sucursalEntregaId], references: [id])
+  sucursalEntregaId Int?           @map("sucursal_entrega_id")
+  usuarioEntrega    Usuario?       @relation("UsuarioEntrega", fields: [usuarioEntregaId], references: [id])
+  usuarioEntregaId  String?        @map("usuario_entrega_id")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  cuotas           Cuota[]
+  pagos            Pago[]
+  mensajesWhatsapp MensajeWhatsappLog[]
+
+  @@index([clienteId])
+  @@index([estado])
+  @@map("prestamos")
+}
+
+enum EstadoCuota {
+  PENDIENTE
+  PAGADA
+  VENCIDA
+  PARCIAL
+}
+
+model Cuota {
+  id               String      @id @default(uuid())
+  prestamo         Prestamo    @relation(fields: [prestamoId], references: [id], onDelete: Cascade)
+  prestamoId       String      @map("prestamo_id")
+  numeroCuota      Int         @map("numero_cuota")
+  montoCapital     Decimal     @map("monto_capital") @db.Decimal(12, 2)
+  montoInteres     Decimal     @map("monto_interes") @db.Decimal(12, 2)
+  montoTotal       Decimal     @map("monto_total") @db.Decimal(12, 2)
+  fechaVencimiento DateTime    @map("fecha_vencimiento") @db.Date
+  estado           EstadoCuota @default(PENDIENTE)
+  saldoPendiente   Decimal     @map("saldo_pendiente") @db.Decimal(12, 2)
+
+  pagos Pago[]
+
+  @@unique([prestamoId, numeroCuota])
+  @@index([prestamoId])
+  @@index([estado, fechaVencimiento])
+  @@map("cuotas")
+}
+
+enum MetodoPago {
+  EFECTIVO
+  TRANSFERENCIA
+}
+
+model Pago {
+  id                String     @id @default(uuid())
+  cuota             Cuota      @relation(fields: [cuotaId], references: [id])
+  cuotaId           String     @map("cuota_id")
+  prestamo          Prestamo   @relation(fields: [prestamoId], references: [id])
+  prestamoId        String     @map("prestamo_id")
+  monto             Decimal    @db.Decimal(12, 2)
+  metodoPago        MetodoPago @default(EFECTIVO) @map("metodo_pago")
+  sucursal          Sucursal?  @relation(fields: [sucursalId], references: [id])
+  sucursalId        Int?       @map("sucursal_id")
+  usuarioCajero     Usuario?   @relation("CajeroPago", fields: [usuarioCajeroId], references: [id])
+  usuarioCajeroId   String?    @map("usuario_cajero_id")
+  comprobanteNumero String     @unique @map("comprobante_numero")
+  createdAt         DateTime   @default(now()) @map("created_at")
+
+  @@index([prestamoId])
+  @@index([cuotaId])
+  @@map("pagos")
+}
+
+// ---------------------------------------------------------
+// Cobranzas / WhatsApp
+// ---------------------------------------------------------
+enum TipoMensajeWhatsapp {
+  ESTADO_CUENTA
+  RECORDATORIO_VENCIMIENTO
+  OTRO
+}
+
+model MensajeWhatsappLog {
+  id              String              @id @default(uuid())
+  cliente         Cliente?            @relation(fields: [clienteId], references: [id])
+  clienteId       String?             @map("cliente_id")
+  prestamo        Prestamo?           @relation(fields: [prestamoId], references: [id])
+  prestamoId      String?             @map("prestamo_id")
+  tipoMensaje     TipoMensajeWhatsapp @map("tipo_mensaje")
+  telefonoDestino String              @map("telefono_destino")
+  mensajeTexto    String              @map("mensaje_texto")
+  urlGenerada     String              @map("url_generada")
+  generadoPor     Usuario?            @relation("GeneradorMensaje", fields: [generadoPorId], references: [id])
+  generadoPorId   String?             @map("generado_por")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  @@map("mensajes_whatsapp_log")
+}
+
+// ---------------------------------------------------------
+// Auditoría
+// ---------------------------------------------------------
+model Auditoria {
+  id        BigInt   @id @default(autoincrement())
+  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
+  usuarioId String?  @map("usuario_id")
+  accion    String
+  entidad   String
+  entidadId String   @map("entidad_id")
+  detalle   Json?
+  ipOrigen  String?  @map("ip_origen")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entidad, entidadId])
+  @@map("auditoria")
+}
