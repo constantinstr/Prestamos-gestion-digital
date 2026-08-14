@@ -38,6 +38,11 @@ async function apiFetch<T>(path: string, options: RequestInit & { token?: string
 export interface Organizacion {
   id: string;
   nombre: string;
+  slug: string;
+}
+
+export function obtenerOrganizacionPorSlug(slug: string) {
+  return apiFetch<Organizacion>(`/organizaciones/${slug}`);
 }
 
 export interface SesionUsuario {
@@ -147,6 +152,21 @@ export function listarClientesOrganizacion(token: string) {
   return apiFetch<ClientePublico[]>("/clientes", { token });
 }
 
+// ---------------------------------------------------------
+// Usuario autenticado (backoffice)
+// ---------------------------------------------------------
+export interface UsuarioActual {
+  id: string;
+  nombre: string;
+  email: string;
+  rol: string;
+  organizacion: Organizacion;
+}
+
+export function obtenerUsuarioActual(token: string) {
+  return apiFetch<UsuarioActual>("/usuarios/me", { token });
+}
+
 export type TipoDocumentoKyc = "DNI_FRENTE" | "DNI_DORSO" | "SELFIE";
 
 export function subirDocumentoKyc(clienteId: string, tipo: TipoDocumentoKyc, archivo: File) {
@@ -206,11 +226,14 @@ export function obtenerMisPrestamos(token: string) {
 // ---------------------------------------------------------
 // Ofertas de préstamo
 // ---------------------------------------------------------
+export type SistemaAmortizacion = "FRANCES" | "ALEMAN" | "AMERICANO";
+
 export interface Oferta {
   id: string;
   clienteId: string;
   montoOfrecido: string;
   cantidadCuotas: number;
+  sistemaAmortizacion: SistemaAmortizacion;
   tna: string;
   tea: string;
   estado: string;
@@ -221,7 +244,13 @@ export interface Oferta {
 
 export function crearOferta(
   token: string,
-  datos: { clienteId: string; montoOfrecido: number; cantidadCuotas: number },
+  datos: {
+    clienteId: string;
+    montoOfrecido: number;
+    cantidadCuotas: number;
+    sistemaAmortizacion?: SistemaAmortizacion;
+    tna?: number;
+  },
 ) {
   return apiFetch<Oferta>("/ofertas", { method: "POST", token, body: JSON.stringify(datos) });
 }
@@ -283,6 +312,8 @@ export function obtenerEstadoCuenta(token: string, prestamoId: string) {
 export interface Cuota {
   id: string;
   numeroCuota: number;
+  montoCapital: string;
+  montoInteres: string;
   montoTotal: string;
   fechaVencimiento: string;
   estado: string;
@@ -291,6 +322,20 @@ export interface Cuota {
 
 export function obtenerCuotas(token: string, prestamoId: string) {
   return apiFetch<Cuota[]>(`/prestamos/${prestamoId}/cuotas`, { token });
+}
+
+export interface Pago {
+  id: string;
+  monto: string;
+  metodoPago: string;
+  comprobanteNumero: string | null;
+  createdAt: string;
+  cuota: { numeroCuota: number };
+  sucursal: { nombre: string };
+}
+
+export function obtenerPagos(token: string, prestamoId: string) {
+  return apiFetch<Pago[]>(`/prestamos/${prestamoId}/pagos`, { token });
 }
 
 export function generarLinkWhatsapp(token: string, prestamoId: string) {
@@ -311,4 +356,19 @@ export interface ResumenAlertas {
 
 export function obtenerResumenAlertas(token: string) {
   return apiFetch<ResumenAlertas>("/alertas/resumen", { token });
+}
+
+// ---------------------------------------------------------
+// Cotización del dólar (panel de admin)
+// ---------------------------------------------------------
+export interface CotizacionDolar {
+  casa: string;
+  nombre: string;
+  compra: number;
+  venta: number;
+  fechaActualizacion: string;
+}
+
+export function obtenerCotizacionDolar(token: string) {
+  return apiFetch<CotizacionDolar[]>("/cotizaciones/dolar", { token });
 }

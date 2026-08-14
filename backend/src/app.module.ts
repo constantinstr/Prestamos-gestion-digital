@@ -19,6 +19,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
 import { ConfiguracionTasasModule } from './configuracion-tasas/configuracion-tasas.module';
 import { PublicConfigModule } from './public-config/public-config.module';
 import { AlertasModule } from './alertas/alertas.module';
+import { CotizacionesModule } from './cotizaciones/cotizaciones.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -47,6 +48,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     ConfiguracionTasasModule,
     PublicConfigModule,
     AlertasModule,
+    CotizacionesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

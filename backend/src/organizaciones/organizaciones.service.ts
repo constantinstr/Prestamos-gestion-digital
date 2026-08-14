@@ -1,6 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { Rol } from '../common/enums/rol.enum';
+import { slugify } from '../common/slugify';
 import { PrismaService } from '../prisma/prisma.service';
 import { TokenService } from '../auth/token.service';
 import { CrearOrganizacionDto } from './dto/crear-organizacion.dto';
@@ -33,12 +38,14 @@ export class OrganizacionesService {
     }
 
     const passwordHash = await argon2.hash(dto.password);
+    const slug = await this.generarSlugUnico(dto.nombre);
 
     const { organizacion, usuario } = await this.prisma.$transaction(
       async (tx) => {
         const organizacion = await tx.organizacion.create({
           data: {
             nombre: dto.nombre,
+            slug,
             razonSocial: dto.razonSocial,
             cuit: dto.cuit,
           },
@@ -70,5 +77,29 @@ export class OrganizacionesService {
       usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email },
       ...tokensSesion,
     };
+  }
+
+  /** Datos públicos mínimos para mostrar el branding del prestamista en su URL propia. */
+  async obtenerPorSlug(slug: string) {
+    const organizacion = await this.prisma.organizacion.findUnique({
+      where: { slug },
+      select: { id: true, nombre: true, slug: true },
+    });
+    if (!organizacion)
+      throw new NotFoundException('Organización no encontrada');
+    return organizacion;
+  }
+
+  private async generarSlugUnico(nombre: string): Promise<string> {
+    const base = slugify(nombre) || 'prestamista';
+    let candidato = base;
+    let sufijo = 1;
+    while (
+      await this.prisma.organizacion.findUnique({ where: { slug: candidato } })
+    ) {
+      sufijo += 1;
+      candidato = `${base}-${sufijo}`;
+    }
+    return candidato;
   }
 }

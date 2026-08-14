@@ -16,6 +16,12 @@ import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 export class UsuariosController {
   constructor(private readonly usuariosService: UsuariosService) {}
 
+  @Roles(Rol.ADMIN_GENERAL, Rol.ANALISTA_CREDITO, Rol.CAJERO)
+  @Get('usuarios/me')
+  me(@CurrentUser() user: UsuarioAutenticado) {
+    return this.usuariosService.obtener(user.id);
+  }
+
   @Get('usuarios')
   listar(@CurrentUser() user: UsuarioAutenticado) {
     return this.usuariosService.listar(user.organizacionId);

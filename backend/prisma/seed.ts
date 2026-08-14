@@ -10,17 +10,26 @@ async function main() {
     prisma.role.upsert({
       where: { nombre: 'ADMIN_GENERAL' },
       update: {},
-      create: { nombre: 'ADMIN_GENERAL', descripcion: 'Configuración de tasas y gestión de usuarios' },
+      create: {
+        nombre: 'ADMIN_GENERAL',
+        descripcion: 'Configuración de tasas y gestión de usuarios',
+      },
     }),
     prisma.role.upsert({
       where: { nombre: 'ANALISTA_CREDITO' },
       update: {},
-      create: { nombre: 'ANALISTA_CREDITO', descripcion: 'Verificación KYC y aprobación/rechazo de solicitudes' },
+      create: {
+        nombre: 'ANALISTA_CREDITO',
+        descripcion: 'Verificación KYC y aprobación/rechazo de solicitudes',
+      },
     }),
     prisma.role.upsert({
       where: { nombre: 'CAJERO' },
       update: {},
-      create: { nombre: 'CAJERO', descripcion: 'Registro de cobros y entrega de préstamos en sucursal' },
+      create: {
+        nombre: 'CAJERO',
+        descripcion: 'Registro de cobros y entrega de préstamos en sucursal',
+      },
     }),
   ]);
 
@@ -31,6 +40,7 @@ async function main() {
     update: {},
     create: {
       nombre: 'Presto Cuotas Demo',
+      slug: 'presto-cuotas-demo',
       razonSocial: 'Presto Cuotas Demo SRL',
       cuit: '30712345678',
     },
@@ -82,7 +92,13 @@ async function main() {
     });
   }
 
-  console.log('Seed completo:', { organizacion, adminGeneral, analistaCredito, cajero, sucursal });
+  console.log('Seed completo:', {
+    organizacion,
+    adminGeneral,
+    analistaCredito,
+    cajero,
+    sucursal,
+  });
 }
 
 main()

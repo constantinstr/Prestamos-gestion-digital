@@ -3,9 +3,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { EstadoPrestamo } from '@prisma/client';
+import { EstadoPrestamo, SistemaAmortizacion } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { calcularPlanDeCuotas } from './util/amortizacion.util';
+import { calcularPlan } from './util/amortizacion.util';
 
 /** Datos mínimos necesarios para originar un préstamo, sin importar si viene
  * de una Solicitud auto-iniciada o de una OfertaPrestamo aceptada. */
@@ -14,6 +14,7 @@ export interface OrigenPrestamo {
   clienteId: string;
   montoSolicitado: number;
   cantidadCuotas: number;
+  sistemaAmortizacion?: SistemaAmortizacion;
   solicitudId?: string;
   ofertaId?: string;
 }
@@ -33,7 +34,9 @@ export class PrestamosService {
 
   /** Genera el préstamo y su plan de cuotas a partir de una Solicitud u Oferta ya aprobada/aceptada. */
   async crearDesdeOrigen(origen: OrigenPrestamo, tna: number, tea: number) {
-    const cuotasCalculadas = calcularPlanDeCuotas(
+    const sistema = origen.sistemaAmortizacion ?? SistemaAmortizacion.FRANCES;
+    const cuotasCalculadas = calcularPlan(
+      sistema,
       Number(origen.montoSolicitado),
       origen.cantidadCuotas,
       tna,
@@ -48,6 +51,7 @@ export class PrestamosService {
         montoOtorgado: origen.montoSolicitado,
         tna,
         tea,
+        sistemaAmortizacion: sistema,
         cantidadCuotas: origen.cantidadCuotas,
         estado: EstadoPrestamo.PENDIENTE_ENTREGA,
         cuotas: {
@@ -79,6 +83,23 @@ export class PrestamosService {
     return this.prisma.cuota.findMany({
       where: { prestamoId: id },
       orderBy: { numeroCuota: 'asc' },
+    });
+  }
+
+  async pagos(id: string, contexto: ContextoAcceso) {
+    await this.obtener(id, contexto);
+    return this.prisma.pago.findMany({
+      where: { prestamoId: id },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        monto: true,
+        metodoPago: true,
+        comprobanteNumero: true,
+        createdAt: true,
+        cuota: { select: { numeroCuota: true } },
+        sucursal: { select: { nombre: true } },
+      },
     });
   }
 

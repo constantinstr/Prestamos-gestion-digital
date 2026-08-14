@@ -13,7 +13,14 @@ import { guardarSesion } from "@/lib/sesion-cliente";
 
 type Paso = "validando" | "datos" | "dni-frente" | "dni-dorso" | "selfie" | "firma" | "listo";
 
-export function WizardOnboarding({ tokenInvitacion }: { tokenInvitacion: string | null }) {
+export function WizardOnboarding({
+  tokenInvitacion,
+  slugOrganizacion,
+}: {
+  tokenInvitacion: string | null;
+  /** Si se accedió por una URL con marca de la organización (/o/[slug]/...), enlaza al portal con esa misma marca. */
+  slugOrganizacion?: string;
+}) {
   const [paso, setPaso] = useState<Paso>("validando");
   const [organizacion, setOrganizacion] = useState<Organizacion | null>(null);
   const [sesion, setSesion] = useState<SesionCliente | null>(null);
@@ -153,7 +160,9 @@ export function WizardOnboarding({ tokenInvitacion }: { tokenInvitacion: string 
         />
       )}
 
-      {paso === "listo" && <PasoListo />}
+      {paso === "listo" && (
+        <PasoListo hrefPortal={slugOrganizacion ? `/o/${slugOrganizacion}/portal` : "/portal"} />
+      )}
     </div>
   );
 }
@@ -347,7 +356,7 @@ function PasoFirma({ cargando, onSubmit }: { cargando: boolean; onSubmit: () => 
   );
 }
 
-function PasoListo() {
+function PasoListo({ hrefPortal }: { hrefPortal: string }) {
   return (
     <div className="mt-6 space-y-4 text-center">
       <h2 className="text-xl font-semibold text-slate-900">¡Listo!</h2>
@@ -356,7 +365,7 @@ function PasoListo() {
         te va a ofrecer un préstamo directamente en tu portal.
       </p>
       <a
-        href="/portal"
+        href={hrefPortal}
         className="mt-2 inline-block w-full rounded-lg bg-indigo-600 px-4 py-3 font-medium text-white transition hover:bg-indigo-500"
       >
         Ir a mi portal

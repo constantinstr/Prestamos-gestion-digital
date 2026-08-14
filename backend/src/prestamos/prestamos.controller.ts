@@ -35,6 +35,11 @@ export class PrestamosController {
     return this.prestamosService.cuotas(id, contextoDe(user));
   }
 
+  @Get(':id/pagos')
+  pagos(@Param('id') id: string, @CurrentUser() user: UsuarioAutenticado) {
+    return this.prestamosService.pagos(id, contextoDe(user));
+  }
+
   @Get(':id/estado-cuenta')
   estadoCuenta(
     @Param('id') id: string,

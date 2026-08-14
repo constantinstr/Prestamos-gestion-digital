@@ -13,6 +13,10 @@ datasource db {
 model Organizacion {
   id          String   @id @default(uuid())
   nombre      String
+  // Identificador legible en URLs propias (ej. /o/acme-prestamos/portal),
+  // para que cada prestamista pueda compartir un link con su propia marca
+  // en vez de una URL genérica de la plataforma.
+  slug        String   @unique
   razonSocial String?  @map("razon_social")
   cuit        String?  @unique
   activa      Boolean  @default(true)
@@ -301,32 +305,39 @@ enum EstadoOferta {
   CANCELADA
 }
 
+enum SistemaAmortizacion {
+  FRANCES // cuota fija, interés decreciente / capital creciente
+  ALEMAN // capital fijo, cuota total decreciente
+  AMERICANO // solo interés en cada cuota, capital íntegro en la última ("bullet")
+}
+
 model OfertaPrestamo {
-  id                   String             @id @default(uuid())
-  organizacion         Organizacion       @relation(fields: [organizacionId], references: [id])
-  organizacionId       String             @map("organizacion_id")
-  cliente              Cliente            @relation(fields: [clienteId], references: [id])
-  clienteId            String             @map("cliente_id")
-  ofrecidoPor          Usuario            @relation("OfrecidoPor", fields: [ofrecidoPorId], references: [id])
-  ofrecidoPorId        String             @map("ofrecido_por")
-  montoOfrecido        Decimal            @map("monto_ofrecido") @db.Decimal(12, 2)
-  cantidadCuotas       Int                @map("cantidad_cuotas")
-  tna                  Decimal            @db.Decimal(6, 3)
-  tea                  Decimal            @db.Decimal(6, 3)
-  configuracionTasa    ConfiguracionTasa? @relation(fields: [configuracionTasasId], references: [id])
-  configuracionTasasId Int?               @map("configuracion_tasas_id")
-  estado               EstadoOferta       @default(PENDIENTE)
-  expiraEn             DateTime?          @map("expira_en")
-  motivoRechazo        String?            @map("motivo_rechazo")
+  id                   String              @id @default(uuid())
+  organizacion         Organizacion        @relation(fields: [organizacionId], references: [id])
+  organizacionId       String              @map("organizacion_id")
+  cliente              Cliente             @relation(fields: [clienteId], references: [id])
+  clienteId            String              @map("cliente_id")
+  ofrecidoPor          Usuario             @relation("OfrecidoPor", fields: [ofrecidoPorId], references: [id])
+  ofrecidoPorId        String              @map("ofrecido_por")
+  montoOfrecido        Decimal             @map("monto_ofrecido") @db.Decimal(12, 2)
+  cantidadCuotas       Int                 @map("cantidad_cuotas")
+  sistemaAmortizacion  SistemaAmortizacion @default(FRANCES) @map("sistema_amortizacion")
+  tna                  Decimal             @db.Decimal(6, 3)
+  tea                  Decimal             @db.Decimal(6, 3)
+  configuracionTasa    ConfiguracionTasa?  @relation(fields: [configuracionTasasId], references: [id])
+  configuracionTasasId Int?                @map("configuracion_tasas_id")
+  estado               EstadoOferta        @default(PENDIENTE)
+  expiraEn             DateTime?           @map("expira_en")
+  motivoRechazo        String?             @map("motivo_rechazo")
   // Aceptación con trazabilidad forense (clickwrap): IP, user-agent, hash del
   // documento con los términos exactos aceptados. No reemplaza asesoramiento
   // legal sobre ejecutabilidad judicial; ver nota en OfertasService.
-  aceptadaEn           DateTime?          @map("aceptada_en")
-  aceptadaIp           String?            @map("aceptada_ip")
-  aceptadaUserAgent    String?            @map("aceptada_user_agent")
-  hashDocumento        String?            @map("hash_documento")
-  createdAt            DateTime           @default(now()) @map("created_at")
-  updatedAt            DateTime           @updatedAt @map("updated_at")
+  aceptadaEn           DateTime?           @map("aceptada_en")
+  aceptadaIp           String?             @map("aceptada_ip")
+  aceptadaUserAgent    String?             @map("aceptada_user_agent")
+  hashDocumento        String?             @map("hash_documento")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
 
   prestamo Prestamo?
 
@@ -348,30 +359,31 @@ enum EstadoPrestamo {
 }
 
 model Prestamo {
-  id                String          @id @default(uuid())
-  organizacion      Organizacion    @relation(fields: [organizacionId], references: [id])
-  organizacionId    String          @map("organizacion_id")
+  id                  String              @id @default(uuid())
+  organizacion        Organizacion        @relation(fields: [organizacionId], references: [id])
+  organizacionId      String              @map("organizacion_id")
   // Un préstamo se origina de una Solicitud auto-iniciada o de una Oferta
   // hecha por la organización; exactamente una de las dos debe estar presente
   // (validado en PrestamosService, no expresable como constraint simple).
-  solicitud         Solicitud?      @relation(fields: [solicitudId], references: [id])
-  solicitudId       String?         @unique @map("solicitud_id")
-  oferta            OfertaPrestamo? @relation(fields: [ofertaId], references: [id])
-  ofertaId          String?         @unique @map("oferta_id")
-  cliente           Cliente         @relation(fields: [clienteId], references: [id])
-  clienteId         String          @map("cliente_id")
-  montoOtorgado     Decimal         @map("monto_otorgado") @db.Decimal(12, 2)
-  tna               Decimal         @db.Decimal(6, 3)
-  tea               Decimal         @db.Decimal(6, 3)
-  cantidadCuotas    Int             @map("cantidad_cuotas")
-  fechaDesembolso   DateTime?       @map("fecha_desembolso") @db.Date
-  estado            EstadoPrestamo  @default(PENDIENTE_ENTREGA)
-  sucursalEntrega   Sucursal?       @relation(fields: [sucursalEntregaId], references: [id])
-  sucursalEntregaId Int?            @map("sucursal_entrega_id")
-  usuarioEntrega    Usuario?        @relation("UsuarioEntrega", fields: [usuarioEntregaId], references: [id])
-  usuarioEntregaId  String?         @map("usuario_entrega_id")
-  createdAt         DateTime        @default(now()) @map("created_at")
-  updatedAt         DateTime        @updatedAt @map("updated_at")
+  solicitud           Solicitud?          @relation(fields: [solicitudId], references: [id])
+  solicitudId         String?             @unique @map("solicitud_id")
+  oferta              OfertaPrestamo?     @relation(fields: [ofertaId], references: [id])
+  ofertaId            String?             @unique @map("oferta_id")
+  cliente             Cliente             @relation(fields: [clienteId], references: [id])
+  clienteId           String              @map("cliente_id")
+  montoOtorgado       Decimal             @map("monto_otorgado") @db.Decimal(12, 2)
+  tna                 Decimal             @db.Decimal(6, 3)
+  tea                 Decimal             @db.Decimal(6, 3)
+  sistemaAmortizacion SistemaAmortizacion @default(FRANCES) @map("sistema_amortizacion")
+  cantidadCuotas      Int                 @map("cantidad_cuotas")
+  fechaDesembolso     DateTime?           @map("fecha_desembolso") @db.Date
+  estado              EstadoPrestamo      @default(PENDIENTE_ENTREGA)
+  sucursalEntrega     Sucursal?           @relation(fields: [sucursalEntregaId], references: [id])
+  sucursalEntregaId   Int?                @map("sucursal_entrega_id")
+  usuarioEntrega      Usuario?            @relation("UsuarioEntrega", fields: [usuarioEntregaId], references: [id])
+  usuarioEntregaId    String?             @map("usuario_entrega_id")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
 
   cuotas           Cuota[]
   pagos            Pago[]

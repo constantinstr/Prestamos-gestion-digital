@@ -5,11 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { createHash } from 'crypto';
-import { EstadoOferta } from '@prisma/client';
+import { EstadoOferta, SistemaAmortizacion } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionTasasService } from '../configuracion-tasas/configuracion-tasas.service';
 import { PrestamosService } from '../prestamos/prestamos.service';
 import { CLIENTE_RESUMEN_SELECT } from '../common/prisma-selects';
+import { calcularTea } from '../prestamos/util/amortizacion.util';
 import { CrearOfertaDto } from './dto/crear-oferta.dto';
 
 const DIAS_VIGENCIA_DEFAULT = 7;
@@ -63,6 +64,14 @@ export class OfertasService {
       expiraEn.getDate() + (dto.diasVigencia ?? DIAS_VIGENCIA_DEFAULT),
     );
 
+    // El admin puede definir una TNA propia para esta oferta puntual; si no,
+    // se usa la tasa vigente de la organización. La TEA siempre se recalcula
+    // a partir de la TNA efectivamente aplicada, para que sean consistentes.
+    const tna = dto.tna ?? Number(tasa.tna);
+    const tea = dto.tna !== undefined ? calcularTea(dto.tna) : Number(tasa.tea);
+    const sistemaAmortizacion =
+      dto.sistemaAmortizacion ?? SistemaAmortizacion.FRANCES;
+
     return this.prisma.ofertaPrestamo.create({
       data: {
         organizacionId,
@@ -70,8 +79,9 @@ export class OfertasService {
         ofrecidoPorId,
         montoOfrecido: dto.montoOfrecido,
         cantidadCuotas: dto.cantidadCuotas,
-        tna: tasa.tna,
-        tea: tasa.tea,
+        sistemaAmortizacion,
+        tna,
+        tea,
         configuracionTasasId: tasa.id,
         expiraEn,
       },
@@ -166,6 +176,7 @@ export class OfertasService {
         clienteId: oferta.clienteId,
         montoSolicitado: Number(oferta.montoOfrecido),
         cantidadCuotas: oferta.cantidadCuotas,
+        sistemaAmortizacion: oferta.sistemaAmortizacion,
         ofertaId: ofertaActualizada.id,
       },
       Number(oferta.tna),

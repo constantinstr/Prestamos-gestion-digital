@@ -8,6 +8,20 @@ import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 export class UsuariosService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async obtener(usuarioId: string) {
+    const usuario = await this.prisma.usuario.findUniqueOrThrow({
+      where: { id: usuarioId },
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        rol: true,
+        organizacion: { select: { id: true, nombre: true, slug: true } },
+      },
+    });
+    return usuario;
+  }
+
   async listar(organizacionId: string) {
     return this.prisma.usuario.findMany({
       where: { organizacionId },

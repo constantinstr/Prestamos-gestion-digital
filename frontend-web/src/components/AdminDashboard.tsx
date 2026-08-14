@@ -8,14 +8,19 @@ import {
   listarInvitaciones,
   listarOfertasOrganizacion,
   loginUsuario,
+  obtenerCotizacionDolar,
   obtenerDocumentosCliente,
   obtenerResumenAlertas,
+  obtenerUsuarioActual,
   verificarDocumentoKyc,
   type ClientePublico,
+  type CotizacionDolar,
   type DocumentoKycRevision,
   type Invitacion,
   type Oferta,
   type ResumenAlertas,
+  type SistemaAmortizacion,
+  type UsuarioActual,
 } from "@/lib/api";
 import { cerrarSesionUsuario, guardarSesionUsuario, useSesionUsuario } from "@/lib/sesion-usuario";
 
@@ -89,20 +94,23 @@ function Panel({ token, onCerrarSesion }: { token: string; onCerrarSesion: () =>
   const [clientes, setClientes] = useState<ClientePublico[] | null>(null);
   const [invitaciones, setInvitaciones] = useState<Invitacion[] | null>(null);
   const [ofertas, setOfertas] = useState<Oferta[] | null>(null);
+  const [usuario, setUsuario] = useState<UsuarioActual | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function recargar() {
     try {
-      const [r, c, i, o] = await Promise.all([
+      const [r, c, i, o, u] = await Promise.all([
         obtenerResumenAlertas(token),
         listarClientesOrganizacion(token),
         listarInvitaciones(token),
         listarOfertasOrganizacion(token),
+        obtenerUsuarioActual(token),
       ]);
       setResumen(r);
       setClientes(c);
       setInvitaciones(i);
       setOfertas(o);
+      setUsuario(u);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo cargar el panel");
     }
@@ -134,7 +142,14 @@ function Panel({ token, onCerrarSesion }: { token: string; onCerrarSesion: () =>
         </div>
       )}
 
-      <SeccionInvitar token={token} invitaciones={invitaciones} onCreada={recargar} />
+      <WidgetCotizacionDolar token={token} />
+
+      <SeccionInvitar
+        token={token}
+        invitaciones={invitaciones}
+        onCreada={recargar}
+        organizacionSlug={usuario?.organizacion.slug}
+      />
       <SeccionClientes
         token={token}
         clientes={clientes}
@@ -155,16 +170,57 @@ function Tarjeta({ etiqueta, valor, alerta }: { etiqueta: string; valor: number;
   );
 }
 
+const formatoUsd = new Intl.NumberFormat("es-AR", {
+  style: "currency",
+  currency: "ARS",
+  maximumFractionDigits: 0,
+});
+
+const ETIQUETAS_CASA_DOLAR: Record<string, string> = {
+  oficial: "Dólar oficial",
+  blue: "Dólar blue",
+  tarjeta: "Dólar tarjeta",
+};
+
+function WidgetCotizacionDolar({ token }: { token: string }) {
+  const [cotizaciones, setCotizaciones] = useState<CotizacionDolar[] | null>(null);
+
+  useEffect(() => {
+    // Carga de datos del servidor al montar: no hay valor derivable sincrónicamente.
+     
+    obtenerCotizacionDolar(token)
+      .then(setCotizaciones)
+      .catch(() => undefined);
+  }, [token]);
+
+  if (!cotizaciones || cotizaciones.length === 0) return null;
+
+  return (
+    <div className="grid grid-cols-3 gap-4">
+      {cotizaciones.map((c) => (
+        <div key={c.casa} className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-sm text-slate-500">{ETIQUETAS_CASA_DOLAR[c.casa] ?? c.nombre}</p>
+          <p className="mt-1 text-lg font-bold text-slate-900">{formatoUsd.format(c.venta)}</p>
+          <p className="text-xs text-slate-400">Compra {formatoUsd.format(c.compra)}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SeccionInvitar({
   token,
   invitaciones,
   onCreada,
+  organizacionSlug,
 }: {
   token: string;
   invitaciones: Invitacion[] | null;
   onCreada: () => void;
+  organizacionSlug?: string;
 }) {
   const [telefono, setTelefono] = useState("");
+  const [urlPersonalizada, setUrlPersonalizada] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ultimoLink, setUltimoLink] = useState<string | null>(null);
@@ -175,7 +231,9 @@ function SeccionInvitar({
     setError(null);
     try {
       const invitacion = await crearInvitacion(token, { telefono: telefono || undefined });
-      const url = `${window.location.origin}/solicitar?invitacion=${invitacion.token}`;
+      const ruta =
+        urlPersonalizada && organizacionSlug ? `/o/${organizacionSlug}/solicitar` : "/solicitar";
+      const url = `${window.location.origin}${ruta}?invitacion=${invitacion.token}`;
       setUltimoLink(url);
       setTelefono("");
       onCreada();
@@ -204,6 +262,18 @@ function SeccionInvitar({
           Generar link
         </button>
       </form>
+
+      {organizacionSlug && (
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={urlPersonalizada}
+            onChange={(e) => setUrlPersonalizada(e.target.checked)}
+            className="accent-indigo-600"
+          />
+          Enmascarar la URL con el nombre de tu organización (/o/{organizacionSlug}/…)
+        </label>
+      )}
 
       {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
       {ultimoLink && (
@@ -457,6 +527,8 @@ function ModalOferta({
 }) {
   const [monto, setMonto] = useState(150000);
   const [cuotas, setCuotas] = useState(12);
+  const [sistemaAmortizacion, setSistemaAmortizacion] = useState<SistemaAmortizacion>("FRANCES");
+  const [tna, setTna] = useState("");
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -464,7 +536,13 @@ function ModalOferta({
     setCargando(true);
     setError(null);
     try {
-      await crearOferta(token, { clienteId: cliente.id, montoOfrecido: monto, cantidadCuotas: cuotas });
+      await crearOferta(token, {
+        clienteId: cliente.id,
+        montoOfrecido: monto,
+        cantidadCuotas: cuotas,
+        sistemaAmortizacion,
+        tna: tna ? Number(tna) : undefined,
+      });
       onCreada();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo crear la oferta");
@@ -498,6 +576,29 @@ function ModalOferta({
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </label>
+        <label className="mt-3 block text-sm font-medium text-slate-700">
+          Sistema de amortización
+          <select
+            value={sistemaAmortizacion}
+            onChange={(e) => setSistemaAmortizacion(e.target.value as SistemaAmortizacion)}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="FRANCES">Francés (cuota fija)</option>
+            <option value="ALEMAN">Alemán (capital fijo)</option>
+            <option value="AMERICANO">Americano (interés + pago único final)</option>
+          </select>
+        </label>
+        <label className="mt-3 block text-sm font-medium text-slate-700">
+          TNA % (opcional)
+          <input
+            type="number"
+            step="0.01"
+            value={tna}
+            onChange={(e) => setTna(e.target.value)}
+            placeholder="Tasa vigente de la organización"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          />
+        </label>
 
         {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
@@ -527,6 +628,12 @@ const formatoMoneda = new Intl.NumberFormat("es-AR", {
   maximumFractionDigits: 0,
 });
 
+const ETIQUETAS_AMORTIZACION: Record<string, string> = {
+  FRANCES: "Francés",
+  ALEMAN: "Alemán",
+  AMERICANO: "Americano",
+};
+
 function SeccionOfertas({ ofertas }: { ofertas: Oferta[] | null }) {
   if (!ofertas || ofertas.length === 0) return null;
 
@@ -538,7 +645,9 @@ function SeccionOfertas({ ofertas }: { ofertas: Oferta[] | null }) {
           <li key={oferta.id} className="flex items-center justify-between py-3 text-sm">
             <span className="text-slate-600">
               {oferta.cliente ? `${oferta.cliente.nombres} ${oferta.cliente.apellidos}` : oferta.clienteId} ·{" "}
-              {formatoMoneda.format(Number(oferta.montoOfrecido))} en {oferta.cantidadCuotas} cuotas
+              {formatoMoneda.format(Number(oferta.montoOfrecido))} en {oferta.cantidadCuotas} cuotas (
+              {ETIQUETAS_AMORTIZACION[oferta.sistemaAmortizacion] ?? oferta.sistemaAmortizacion}, TNA{" "}
+              {oferta.tna}%)
             </span>
             <EstadoBadge estado={oferta.estado} />
           </li>

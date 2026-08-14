@@ -3,7 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../common/decorators/public.decorator';
 import { ConfiguracionTasasService } from '../configuracion-tasas/configuracion-tasas.service';
 import {
-  calcularPlanDeCuotas,
+  calcularPlanFrances,
   calcularTea,
 } from '../prestamos/util/amortizacion.util';
 
@@ -44,7 +44,7 @@ export class PublicConfigController {
       );
     }
 
-    const plan = calcularPlanDeCuotas(monto, cantidadCuotas, Number(tasa.tna));
+    const plan = calcularPlanFrances(monto, cantidadCuotas, Number(tasa.tna));
     const cuotaPromedio =
       plan.reduce((sum, c) => sum + c.montoTotal, 0) / plan.length;
 

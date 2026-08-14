@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../common/decorators/public.decorator';
 import { OrganizacionesService } from './organizaciones.service';
@@ -13,5 +13,11 @@ export class OrganizacionesController {
   @Post()
   crear(@Body() dto: CrearOrganizacionDto) {
     return this.organizacionesService.crear(dto);
+  }
+
+  @Public()
+  @Get(':slug')
+  obtenerPorSlug(@Param('slug') slug: string) {
+    return this.organizacionesService.obtenerPorSlug(slug);
   }
 }

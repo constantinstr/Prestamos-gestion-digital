@@ -6,11 +6,15 @@ import {
   generarLinkWhatsapp,
   loginCliente,
   misOfertas,
+  obtenerCuotas,
   obtenerEstadoCuenta,
   obtenerMisPrestamos,
+  obtenerPagos,
   rechazarOferta,
+  type Cuota,
   type EstadoCuenta,
   type Oferta,
+  type Pago,
   type Prestamo,
   type SesionCliente,
 } from "@/lib/api";
@@ -99,6 +103,8 @@ function VistaPortal({ sesion, onCerrarSesion }: { sesion: SesionCliente; onCerr
   const [ofertas, setOfertas] = useState<Oferta[] | null>(null);
   const [prestamos, setPrestamos] = useState<Prestamo[] | null>(null);
   const [estadoCuenta, setEstadoCuenta] = useState<EstadoCuenta | null>(null);
+  const [cuotas, setCuotas] = useState<Cuota[] | null>(null);
+  const [pagos, setPagos] = useState<Pago[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [linkWhatsapp, setLinkWhatsapp] = useState<string | null>(null);
 
@@ -111,7 +117,14 @@ function VistaPortal({ sesion, onCerrarSesion }: { sesion: SesionCliente; onCerr
       setOfertas(listaOfertas);
       setPrestamos(listaPrestamos);
       if (listaPrestamos[0]) {
-        setEstadoCuenta(await obtenerEstadoCuenta(sesion.accessToken, listaPrestamos[0].id));
+        const [ec, listaCuotas, listaPagos] = await Promise.all([
+          obtenerEstadoCuenta(sesion.accessToken, listaPrestamos[0].id),
+          obtenerCuotas(sesion.accessToken, listaPrestamos[0].id),
+          obtenerPagos(sesion.accessToken, listaPrestamos[0].id),
+        ]);
+        setEstadoCuenta(ec);
+        setCuotas(listaCuotas);
+        setPagos(listaPagos);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo cargar tu información");
@@ -222,8 +235,85 @@ function VistaPortal({ sesion, onCerrarSesion }: { sesion: SesionCliente; onCerr
               .
             </p>
           )}
+
+          {cuotas && cuotas.length > 0 && <TablaCuotas cuotas={cuotas} />}
+          {pagos && pagos.length > 0 && <ListaPagos pagos={pagos} />}
         </div>
       )}
+    </div>
+  );
+}
+
+const ESTILOS_ESTADO_CUOTA: Record<string, string> = {
+  PAGADA: "bg-green-50 text-green-700",
+  VENCIDA: "bg-red-50 text-red-700",
+  PENDIENTE: "bg-slate-100 text-slate-600",
+};
+
+function TablaCuotas({ cuotas }: { cuotas: Cuota[] }) {
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-slate-900">Cuotas</h2>
+      <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr>
+              <th className="px-3 py-2">#</th>
+              <th className="px-3 py-2">Vencimiento</th>
+              <th className="px-3 py-2">Capital</th>
+              <th className="px-3 py-2">Interés</th>
+              <th className="px-3 py-2">Total</th>
+              <th className="px-3 py-2">Estado</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {cuotas.map((cuota) => (
+              <tr key={cuota.id}>
+                <td className="px-3 py-2 text-slate-600">{cuota.numeroCuota}</td>
+                <td className="px-3 py-2 text-slate-600">
+                  {formatoFecha.format(new Date(cuota.fechaVencimiento))}
+                </td>
+                <td className="px-3 py-2 text-slate-600">{formatoMoneda.format(Number(cuota.montoCapital))}</td>
+                <td className="px-3 py-2 text-slate-600">{formatoMoneda.format(Number(cuota.montoInteres))}</td>
+                <td className="px-3 py-2 font-medium text-slate-900">
+                  {formatoMoneda.format(Number(cuota.montoTotal))}
+                </td>
+                <td className="px-3 py-2">
+                  <span
+                    className={`rounded-full px-2 py-1 text-xs font-medium ${
+                      ESTILOS_ESTADO_CUOTA[cuota.estado] ?? "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {cuota.estado}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ListaPagos({ pagos }: { pagos: Pago[] }) {
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-slate-900">Pagos realizados</h2>
+      <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200">
+        {pagos.map((pago) => (
+          <li key={pago.id} className="flex items-center justify-between px-3 py-2 text-sm">
+            <div>
+              <p className="text-slate-900">
+                Cuota {pago.cuota.numeroCuota} · {formatoMoneda.format(Number(pago.monto))}
+              </p>
+              <p className="text-xs text-slate-500">
+                {formatoFecha.format(new Date(pago.createdAt))} · {pago.metodoPago} · {pago.sucursal.nombre}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
