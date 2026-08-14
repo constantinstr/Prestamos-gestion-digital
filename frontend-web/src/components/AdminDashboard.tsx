@@ -8,8 +8,11 @@ import {
   listarInvitaciones,
   listarOfertasOrganizacion,
   loginUsuario,
+  obtenerDocumentosCliente,
   obtenerResumenAlertas,
+  verificarDocumentoKyc,
   type ClientePublico,
+  type DocumentoKycRevision,
   type Invitacion,
   type Oferta,
   type ResumenAlertas,
@@ -132,7 +135,12 @@ function Panel({ token, onCerrarSesion }: { token: string; onCerrarSesion: () =>
       )}
 
       <SeccionInvitar token={token} invitaciones={invitaciones} onCreada={recargar} />
-      <SeccionClientes token={token} clientes={clientes} onOfertaCreada={recargar} />
+      <SeccionClientes
+        token={token}
+        clientes={clientes}
+        onOfertaCreada={recargar}
+        onDocumentoRevisado={recargar}
+      />
       <SeccionOfertas ofertas={ofertas} />
     </div>
   );
@@ -216,16 +224,25 @@ function SeccionInvitar({
   );
 }
 
+function estadoKyc(cliente: ClientePublico): { texto: string; estilo: string } {
+  if (cliente.kycCompleto) return { texto: "KYC verificado", estilo: "text-green-600" };
+  if (cliente.kycSubido) return { texto: "KYC pendiente de revisión", estilo: "text-amber-600" };
+  return { texto: "KYC incompleto", estilo: "text-slate-500" };
+}
+
 function SeccionClientes({
   token,
   clientes,
   onOfertaCreada,
+  onDocumentoRevisado,
 }: {
   token: string;
   clientes: ClientePublico[] | null;
   onOfertaCreada: () => void;
+  onDocumentoRevisado: () => void;
 }) {
-  const [clienteSeleccionado, setClienteSeleccionado] = useState<ClientePublico | null>(null);
+  const [clienteParaOfertar, setClienteParaOfertar] = useState<ClientePublico | null>(null);
+  const [clienteParaRevisar, setClienteParaRevisar] = useState<ClientePublico | null>(null);
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6">
@@ -237,40 +254,193 @@ function SeccionClientes({
 
       {clientes && clientes.length > 0 && (
         <ul className="mt-4 divide-y divide-slate-100">
-          {clientes.map((cliente) => (
-            <li key={cliente.id} className="flex items-center justify-between py-3">
-              <div>
-                <p className="font-medium text-slate-900">
-                  {cliente.nombres} {cliente.apellidos}
-                </p>
-                <p className="text-sm text-slate-500">
-                  DNI {cliente.dni} · KYC {cliente.kycCompleto ? "completo" : "pendiente"}
-                </p>
-              </div>
-              <button
-                onClick={() => setClienteSeleccionado(cliente)}
-                disabled={!cliente.kycCompleto}
-                className="rounded-lg border border-indigo-600 px-3 py-1.5 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-              >
-                Ofertar préstamo
-              </button>
-            </li>
-          ))}
+          {clientes.map((cliente) => {
+            const estado = estadoKyc(cliente);
+            return (
+              <li key={cliente.id} className="flex items-center justify-between py-3">
+                <div>
+                  <p className="font-medium text-slate-900">
+                    {cliente.nombres} {cliente.apellidos}
+                  </p>
+                  <p className="text-sm text-slate-500">
+                    DNI {cliente.dni} · <span className={estado.estilo}>{estado.texto}</span>
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setClienteParaRevisar(cliente)}
+                    disabled={!cliente.kycSubido}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                  >
+                    Revisar KYC
+                  </button>
+                  <button
+                    onClick={() => setClienteParaOfertar(cliente)}
+                    disabled={!cliente.kycCompleto}
+                    className="rounded-lg border border-indigo-600 px-3 py-1.5 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                  >
+                    Ofertar préstamo
+                  </button>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      {clienteSeleccionado && (
+      {clienteParaOfertar && (
         <ModalOferta
           token={token}
-          cliente={clienteSeleccionado}
-          onCerrar={() => setClienteSeleccionado(null)}
+          cliente={clienteParaOfertar}
+          onCerrar={() => setClienteParaOfertar(null)}
           onCreada={() => {
-            setClienteSeleccionado(null);
+            setClienteParaOfertar(null);
             onOfertaCreada();
           }}
         />
       )}
+
+      {clienteParaRevisar && (
+        <ModalRevisionKyc
+          token={token}
+          cliente={clienteParaRevisar}
+          onCerrar={() => setClienteParaRevisar(null)}
+          onCambio={onDocumentoRevisado}
+        />
+      )}
     </section>
+  );
+}
+
+const ETIQUETAS_DOCUMENTO: Record<string, string> = {
+  DNI_FRENTE: "DNI (frente)",
+  DNI_DORSO: "DNI (dorso)",
+  SELFIE: "Selfie",
+  FIRMA: "Firma / aceptación de T&C",
+};
+
+function ModalRevisionKyc({
+  token,
+  cliente,
+  onCerrar,
+  onCambio,
+}: {
+  token: string;
+  cliente: ClientePublico;
+  onCerrar: () => void;
+  onCambio: () => void;
+}) {
+  const [documentos, setDocumentos] = useState<DocumentoKycRevision[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [rechazandoId, setRechazandoId] = useState<string | null>(null);
+  const [motivoRechazo, setMotivoRechazo] = useState("");
+
+  async function cargar() {
+    try {
+      setDocumentos(await obtenerDocumentosCliente(token, cliente.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudieron cargar los documentos");
+    }
+  }
+
+  useEffect(() => {
+    // Carga de datos del servidor al montar: no hay valor derivable sincrónicamente.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    cargar().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cliente.id]);
+
+  async function resolver(documentoId: string, aprobado: boolean, motivo?: string) {
+    setError(null);
+    try {
+      await verificarDocumentoKyc(token, cliente.id, documentoId, aprobado, motivo);
+      setRechazandoId(null);
+      setMotivoRechazo("");
+      await cargar();
+      onCambio();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo registrar la revisión");
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-8">
+      <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-slate-900">
+            Revisar KYC de {cliente.nombres} {cliente.apellidos}
+          </h3>
+          <button onClick={onCerrar} className="text-sm text-slate-500 hover:text-slate-700">
+            Cerrar
+          </button>
+        </div>
+
+        {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+
+        {!documentos && !error && <p className="mt-4 text-sm text-slate-500">Cargando…</p>}
+
+        {documentos && (
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            {documentos.map((doc) => (
+              <div key={doc.id} className="rounded-lg border border-slate-200 p-3">
+                <p className="text-sm font-medium text-slate-900">{ETIQUETAS_DOCUMENTO[doc.tipo] ?? doc.tipo}</p>
+                {doc.tipo !== "FIRMA" && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={doc.url}
+                    alt={ETIQUETAS_DOCUMENTO[doc.tipo] ?? doc.tipo}
+                    className="mt-2 h-40 w-full rounded-md border border-slate-100 object-cover"
+                  />
+                )}
+                <div className="mt-2 flex items-center justify-between">
+                  <span
+                    className={`text-xs font-medium ${doc.verificado ? "text-green-600" : "text-amber-600"}`}
+                  >
+                    {doc.verificado ? "Aprobado" : "Pendiente"}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setRechazandoId(rechazandoId === doc.id ? null : doc.id)}
+                      className="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                    >
+                      Rechazar
+                    </button>
+                    <button
+                      onClick={() => resolver(doc.id, true)}
+                      disabled={doc.verificado}
+                      className="rounded-lg bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-50"
+                    >
+                      Aprobar
+                    </button>
+                  </div>
+                </div>
+
+                {rechazandoId === doc.id && (
+                  <div className="mt-2 space-y-2">
+                    <input
+                      value={motivoRechazo}
+                      onChange={(e) => setMotivoRechazo(e.target.value)}
+                      placeholder="Motivo del rechazo"
+                      className="w-full rounded-lg border border-slate-300 px-2 py-1 text-xs outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400"
+                    />
+                    <button
+                      onClick={() => resolver(doc.id, false, motivoRechazo || undefined)}
+                      className="w-full rounded-lg bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-500"
+                    >
+                      Confirmar rechazo
+                    </button>
+                  </div>
+                )}
+
+                {doc.motivoRechazo && (
+                  <p className="mt-2 text-xs text-red-500">Motivo: {doc.motivoRechazo}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

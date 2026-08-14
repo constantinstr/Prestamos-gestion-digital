@@ -24,6 +24,7 @@ import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UploadDocumentoDto } from './dto/upload-documento.dto';
 import { FirmaDigitalDto } from './dto/firma-digital.dto';
 import { LoginClienteDto } from './dto/login-cliente.dto';
+import { VerificarDocumentoDto } from './dto/verificar-documento.dto';
 
 @ApiTags('clientes')
 @Controller('clientes')
@@ -90,6 +91,33 @@ export class ClientesController {
   @Get(':id')
   obtener(@Param('id') id: string, @CurrentUser() user: UsuarioAutenticado) {
     return this.clientesService.obtenerDeOrganizacion(id, user.organizacionId);
+  }
+
+  @Roles(Rol.ADMIN_GENERAL, Rol.ANALISTA_CREDITO)
+  @Get(':id/documentos')
+  documentos(@Param('id') id: string, @CurrentUser() user: UsuarioAutenticado) {
+    return this.clientesService.documentosDeOrganizacion(
+      id,
+      user.organizacionId,
+    );
+  }
+
+  @Roles(Rol.ADMIN_GENERAL, Rol.ANALISTA_CREDITO)
+  @Patch(':id/documentos/:documentoId')
+  verificarDocumento(
+    @Param('id') id: string,
+    @Param('documentoId') documentoId: string,
+    @Body() dto: VerificarDocumentoDto,
+    @CurrentUser() user: UsuarioAutenticado,
+  ) {
+    return this.clientesService.verificarDocumento(
+      id,
+      documentoId,
+      user.organizacionId,
+      user.id,
+      dto.aprobado,
+      dto.motivoRechazo,
+    );
   }
 
   // TODO: validar que el usuario autenticado (CurrentUser) sea el propio cliente

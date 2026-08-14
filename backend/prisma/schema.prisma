@@ -147,6 +147,8 @@ model DocumentoKyc {
   verificado      Boolean          @default(false)
   verificadoPor   Usuario?         @relation("VerificadorDocumento", fields: [verificadoPorId], references: [id])
   verificadoPorId String?          @map("verificado_por")
+  verificadoEn    DateTime?        @map("verificado_en")
+  motivoRechazo   String?          @map("motivo_rechazo")
   createdAt       DateTime         @default(now()) @map("created_at")
 
   @@index([clienteId])

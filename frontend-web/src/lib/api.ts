@@ -1,4 +1,6 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
+/** Base del backend sin el prefijo /api/v1, para armar URLs de archivos estáticos (documentos KYC). */
+export const API_ORIGIN = API_URL.replace(/\/api\/v1\/?$/, "");
 
 export interface ApiError {
   statusCode: number;
@@ -110,6 +112,9 @@ export interface ClientePublico {
   telefono: string;
   email: string | null;
   estado: string;
+  /** Todos los documentos requeridos fueron subidos (verificados o no). */
+  kycSubido?: boolean;
+  /** Todos los documentos requeridos fueron subidos Y aprobados por un analista. */
   kycCompleto?: boolean;
 }
 
@@ -149,6 +154,35 @@ export function subirDocumentoKyc(clienteId: string, tipo: TipoDocumentoKyc, arc
   formData.append("tipo", tipo);
   formData.append("archivo", archivo);
   return apiFetch(`/clientes/${clienteId}/documentos`, { method: "POST", body: formData });
+}
+
+export interface DocumentoKycRevision {
+  id: string;
+  tipo: "DNI_FRENTE" | "DNI_DORSO" | "SELFIE" | "FIRMA";
+  verificado: boolean;
+  motivoRechazo: string | null;
+  createdAt: string;
+  url: string;
+}
+
+export async function obtenerDocumentosCliente(token: string, clienteId: string) {
+  const documentos = await apiFetch<DocumentoKycRevision[]>(`/clientes/${clienteId}/documentos`, { token });
+  // El backend devuelve rutas relativas (/uploads/...); el frontend corre en otro origen.
+  return documentos.map((doc) => ({ ...doc, url: `${API_ORIGIN}${doc.url}` }));
+}
+
+export function verificarDocumentoKyc(
+  token: string,
+  clienteId: string,
+  documentoId: string,
+  aprobado: boolean,
+  motivoRechazo?: string,
+) {
+  return apiFetch<DocumentoKycRevision>(`/clientes/${clienteId}/documentos/${documentoId}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ aprobado, motivoRechazo }),
+  });
 }
 
 export function firmarDigital(clienteId: string) {

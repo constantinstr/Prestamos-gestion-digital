@@ -90,15 +90,66 @@ export class ClientesService {
   }
 
   async estadoDocumentos(clienteId: string) {
-    const documentos = await this.prisma.documentoKyc.findMany({
-      where: { clienteId },
-    });
+    const documentos = await this.documentosVigentesPorTipo(clienteId);
     return documentos.map(({ id, tipo, verificado, livenessScore }) => ({
       id,
       tipo,
       verificado,
       livenessScore,
     }));
+  }
+
+  /** Backoffice: documentos vigentes del cliente (el más reciente por tipo), con URL para visualizarlos. */
+  async documentosDeOrganizacion(clienteId: string, organizacionId: string) {
+    await this.obtenerDeOrganizacion(clienteId, organizacionId);
+    const documentos = await this.documentosVigentesPorTipo(clienteId);
+    return Promise.all(
+      documentos.map(async (doc) => ({
+        ...doc,
+        url: await this.storage.obtenerUrlFirmada(doc.storageKey),
+      })),
+    );
+  }
+
+  /** Backoffice: aprueba o rechaza un documento KYC vigente del cliente. */
+  async verificarDocumento(
+    clienteId: string,
+    documentoId: string,
+    organizacionId: string,
+    verificadoPorId: string,
+    aprobado: boolean,
+    motivoRechazo?: string,
+  ) {
+    await this.obtenerDeOrganizacion(clienteId, organizacionId);
+    const { count } = await this.prisma.documentoKyc.updateMany({
+      where: { id: documentoId, clienteId },
+      data: {
+        verificado: aprobado,
+        verificadoPorId,
+        verificadoEn: new Date(),
+        motivoRechazo: aprobado
+          ? null
+          : (motivoRechazo ?? 'Rechazado sin motivo especificado'),
+      },
+    });
+    if (count === 0) throw new NotFoundException('Documento no encontrado');
+    return this.prisma.documentoKyc.findUniqueOrThrow({
+      where: { id: documentoId },
+    });
+  }
+
+  /** Se queda con el documento más reciente de cada tipo (por si el cliente resubió alguno). */
+  private async documentosVigentesPorTipo(clienteId: string) {
+    const documentos = await this.prisma.documentoKyc.findMany({
+      where: { clienteId },
+      orderBy: { createdAt: 'desc' },
+    });
+    const vistos = new Set<string>();
+    return documentos.filter((doc) => {
+      if (vistos.has(doc.tipo)) return false;
+      vistos.add(doc.tipo);
+      return true;
+    });
   }
 
   async firmar(clienteId: string) {
@@ -132,14 +183,28 @@ export class ClientesService {
     const clientes = await this.prisma.cliente.findMany({
       where: { organizacionId },
       orderBy: { createdAt: 'desc' },
-      include: { documentos: { select: { tipo: true, verificado: true } } },
+      include: {
+        documentos: {
+          select: { tipo: true, verificado: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
     });
-    return clientes.map(({ documentos, ...cliente }) => ({
-      ...this.aPublico(cliente),
-      kycCompleto: ['DNI_FRENTE', 'DNI_DORSO', 'SELFIE', 'FIRMA'].every(
-        (tipo) => documentos.some((d) => d.tipo === tipo),
-      ),
-    }));
+    return clientes.map(({ documentos, ...cliente }) => {
+      const vigentesPorTipo = new Map<string, boolean>();
+      for (const doc of documentos) {
+        if (!vigentesPorTipo.has(doc.tipo))
+          vigentesPorTipo.set(doc.tipo, doc.verificado);
+      }
+      const requeridos = ['DNI_FRENTE', 'DNI_DORSO', 'SELFIE', 'FIRMA'];
+      return {
+        ...this.aPublico(cliente),
+        kycSubido: requeridos.every((tipo) => vigentesPorTipo.has(tipo)),
+        kycCompleto: requeridos.every(
+          (tipo) => vigentesPorTipo.get(tipo) === true,
+        ),
+      };
+    });
   }
 
   async misPrestamos(clienteId: string) {
