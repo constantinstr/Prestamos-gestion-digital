@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
@@ -8,8 +8,9 @@ import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 export class UsuariosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listar() {
+  async listar(organizacionId: string) {
     return this.prisma.usuario.findMany({
+      where: { organizacionId },
       select: {
         id: true,
         nombre: true,
@@ -21,10 +22,11 @@ export class UsuariosService {
     });
   }
 
-  async crear(dto: CreateUsuarioDto) {
+  async crear(dto: CreateUsuarioDto, organizacionId: string) {
     const passwordHash = await argon2.hash(dto.password);
     return this.prisma.usuario.create({
       data: {
+        organizacionId,
         nombre: dto.nombre,
         email: dto.email,
         passwordHash,
@@ -35,8 +37,13 @@ export class UsuariosService {
     });
   }
 
-  async actualizar(id: string, dto: UpdateUsuarioDto) {
-    return this.prisma.usuario.update({ where: { id }, data: dto });
+  async actualizar(id: string, dto: UpdateUsuarioDto, organizacionId: string) {
+    const { count } = await this.prisma.usuario.updateMany({
+      where: { id, organizacionId },
+      data: dto,
+    });
+    if (count === 0) throw new NotFoundException('Usuario no encontrado');
+    return this.prisma.usuario.findUniqueOrThrow({ where: { id } });
   }
 
   async roles() {

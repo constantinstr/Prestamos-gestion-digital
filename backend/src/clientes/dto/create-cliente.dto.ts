@@ -9,6 +9,12 @@ import {
 } from 'class-validator';
 
 export class CreateClienteDto {
+  @ApiProperty({
+    description: 'Token de la invitación recibida del prestamista',
+  })
+  @IsString()
+  token: string;
+
   @ApiProperty({ example: '30123456' })
   @IsString()
   @Matches(/^\d{7,9}$/, { message: 'DNI inválido' })

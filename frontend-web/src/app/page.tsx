@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { SimuladorPrestamo } from "@/components/SimuladorPrestamo";
 
 export default function Home() {
   return (
@@ -11,11 +10,14 @@ export default function Home() {
             <Link href="/portal" className="hover:text-indigo-600">
               Ya tengo un préstamo
             </Link>
+            <Link href="/admin" className="hover:text-indigo-600">
+              Soy prestamista
+            </Link>
             <Link
-              href="/solicitar"
+              href="/registro-prestamista"
               className="rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-500"
             >
-              Solicitar préstamo
+              Registrar mi negocio
             </Link>
           </nav>
         </div>
@@ -24,27 +26,43 @@ export default function Home() {
       <section className="mx-auto grid w-full max-w-6xl flex-1 items-center gap-12 px-6 py-16 md:grid-cols-2">
         <div>
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
-            Tu préstamo, 100% digital.
+            La plataforma para gestionar tu negocio de préstamos.
           </h1>
           <p className="mt-4 max-w-lg text-lg text-slate-600">
-            Solicitá online, subí tu DNI y una selfie, y retirá tu dinero en la sucursal más
-            cercana. Sin filas, sin papeles.
+            Invitá a tus clientes, validá su identidad digitalmente y ofrecéles préstamos con
+            cuotas y tasas que vos definís. Ellos aceptan, firman y siguen su cuenta desde su
+            portal.
           </p>
           <ul className="mt-8 space-y-3 text-slate-700">
             <li className="flex items-center gap-2">
-              <Bullet /> Aprobación en minutos
+              <Bullet /> Cada prestamista gestiona su propia cartera de clientes
             </li>
             <li className="flex items-center gap-2">
-              <Bullet /> Verificación de identidad digital
+              <Bullet /> Verificación de identidad digital (DNI + selfie)
             </li>
             <li className="flex items-center gap-2">
-              <Bullet /> Cobro y entrega presencial en sucursal
+              <Bullet /> Alertas de vencimiento y mora automáticas
             </li>
           </ul>
         </div>
 
-        <div className="flex justify-center md:justify-end">
-          <SimuladorPrestamo />
+        <div className="flex flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/60 md:items-start">
+          <h2 className="text-xl font-semibold text-slate-900">Empezá ahora</h2>
+          <p className="text-sm text-slate-500">
+            Registrá tu negocio y en minutos vas a poder invitar a tu primer cliente.
+          </p>
+          <Link
+            href="/registro-prestamista"
+            className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-center font-medium text-white transition hover:bg-indigo-500"
+          >
+            Registrar mi negocio
+          </Link>
+          <Link
+            href="/admin"
+            className="w-full rounded-lg border border-slate-300 px-4 py-3 text-center font-medium text-slate-700 transition hover:bg-slate-50"
+          >
+            Ya tengo cuenta, ingresar
+          </Link>
         </div>
       </section>
 

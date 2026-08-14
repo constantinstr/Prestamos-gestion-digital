@@ -2,11 +2,15 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import {
+  aceptarOferta,
   generarLinkWhatsapp,
   loginCliente,
+  misOfertas,
   obtenerEstadoCuenta,
   obtenerMisPrestamos,
+  rechazarOferta,
   type EstadoCuenta,
+  type Oferta,
   type Prestamo,
   type SesionCliente,
 } from "@/lib/api";
@@ -29,7 +33,7 @@ export function PortalCliente() {
     return <FormularioLogin onIngreso={guardarSesion} />;
   }
 
-  return <EstadoCuentaCliente sesion={sesion} onCerrarSesion={cerrarSesion} />;
+  return <VistaPortal sesion={sesion} onCerrarSesion={cerrarSesion} />;
 }
 
 function FormularioLogin({ onIngreso }: { onIngreso: (sesion: SesionCliente) => void }) {
@@ -55,7 +59,7 @@ function FormularioLogin({ onIngreso }: { onIngreso: (sesion: SesionCliente) => 
   return (
     <div className="mx-auto w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/60">
       <h1 className="text-xl font-semibold text-slate-900">Ingresá a tu cuenta</h1>
-      <p className="mt-1 text-sm text-slate-500">Usá el DNI y la contraseña de tu solicitud.</p>
+      <p className="mt-1 text-sm text-slate-500">Usá el DNI y la contraseña de tu registro.</p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <label className="block text-sm font-medium text-slate-700">
@@ -91,41 +95,44 @@ function FormularioLogin({ onIngreso }: { onIngreso: (sesion: SesionCliente) => 
   );
 }
 
-function EstadoCuentaCliente({
-  sesion,
-  onCerrarSesion,
-}: {
-  sesion: SesionCliente;
-  onCerrarSesion: () => void;
-}) {
+function VistaPortal({ sesion, onCerrarSesion }: { sesion: SesionCliente; onCerrarSesion: () => void }) {
+  const [ofertas, setOfertas] = useState<Oferta[] | null>(null);
   const [prestamos, setPrestamos] = useState<Prestamo[] | null>(null);
   const [estadoCuenta, setEstadoCuenta] = useState<EstadoCuenta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [linkWhatsapp, setLinkWhatsapp] = useState<string | null>(null);
 
+  async function recargar() {
+    try {
+      const [listaOfertas, listaPrestamos] = await Promise.all([
+        misOfertas(sesion.accessToken),
+        obtenerMisPrestamos(sesion.accessToken),
+      ]);
+      setOfertas(listaOfertas);
+      setPrestamos(listaPrestamos);
+      if (listaPrestamos[0]) {
+        setEstadoCuenta(await obtenerEstadoCuenta(sesion.accessToken, listaPrestamos[0].id));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo cargar tu información");
+    }
+  }
+
   useEffect(() => {
-    obtenerMisPrestamos(sesion.accessToken)
-      .then(async (lista) => {
-        setPrestamos(lista);
-        if (lista[0]) {
-          const cuenta = await obtenerEstadoCuenta(sesion.accessToken, lista[0].id);
-          setEstadoCuenta(cuenta);
-        }
-      })
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "No se pudo cargar tu información");
-      });
+    // Carga de datos del servidor al montar: no hay valor derivable sincrónicamente.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    recargar().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sesion.accessToken]);
 
+  const ofertasPendientes = ofertas?.filter((o) => o.estado === "PENDIENTE") ?? [];
   const prestamoActivo = prestamos?.[0];
 
   return (
     <div className="mx-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/60">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">
-            Hola, {sesion.cliente.nombres}
-          </h1>
+          <h1 className="text-xl font-semibold text-slate-900">Hola, {sesion.cliente.nombres}</h1>
           <p className="text-sm text-slate-500">DNI {sesion.cliente.dni}</p>
         </div>
         <button onClick={onCerrarSesion} className="text-sm text-slate-500 hover:text-slate-700">
@@ -133,13 +140,36 @@ function EstadoCuentaCliente({
         </button>
       </div>
 
-      {error && (
-        <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
+      {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+
+      {estadoCuenta?.alertas.tieneCuotasVencidas && (
+        <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+          Tenés {estadoCuenta.alertas.cantidadCuotasVencidas}{" "}
+          {estadoCuenta.alertas.cantidadCuotasVencidas === 1 ? "cuota vencida" : "cuotas vencidas"}. Acercate a tu
+          sucursal para regularizar tu situación.
+        </div>
+      )}
+      {!estadoCuenta?.alertas.tieneCuotasVencidas && estadoCuenta?.alertas.proximoVencimientoUrgente && (
+        <div className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          Tu próxima cuota vence en {estadoCuenta.alertas.proximoVencimientoEnDias === 0
+            ? "el día de hoy"
+            : `${estadoCuenta.alertas.proximoVencimientoEnDias} día(s)`}
+          .
+        </div>
       )}
 
-      {prestamos && prestamos.length === 0 && (
+      {ofertasPendientes.length > 0 && (
+        <div className="mt-6 space-y-3">
+          <h2 className="text-sm font-semibold text-slate-900">Tenés una oferta de préstamo</h2>
+          {ofertasPendientes.map((oferta) => (
+            <TarjetaOferta key={oferta.id} oferta={oferta} token={sesion.accessToken} onResuelta={recargar} />
+          ))}
+        </div>
+      )}
+
+      {prestamos && prestamos.length === 0 && ofertasPendientes.length === 0 && (
         <p className="mt-6 text-sm text-slate-500">
-          Todavía no tenés préstamos asociados a esta cuenta.
+          Todavía no tenés préstamos ni ofertas. Tu prestamista te va a avisar cuando tengas una disponible.
         </p>
       )}
 
@@ -194,6 +224,62 @@ function EstadoCuentaCliente({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function TarjetaOferta({
+  oferta,
+  token,
+  onResuelta,
+}: {
+  oferta: Oferta;
+  token: string;
+  onResuelta: () => void;
+}) {
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function responder(accion: "aceptar" | "rechazar") {
+    setCargando(true);
+    setError(null);
+    try {
+      if (accion === "aceptar") {
+        await aceptarOferta(token, oferta.id);
+      } else {
+        await rechazarOferta(token, oferta.id);
+      }
+      onResuelta();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo procesar tu respuesta");
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+      <p className="text-sm text-slate-700">
+        Te ofrecen <span className="font-semibold">{formatoMoneda.format(Number(oferta.montoOfrecido))}</span> en{" "}
+        {oferta.cantidadCuotas} cuotas (TNA {oferta.tna}%).
+      </p>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      <div className="mt-3 flex gap-3">
+        <button
+          onClick={() => responder("rechazar")}
+          disabled={cargando}
+          className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+        >
+          Rechazar
+        </button>
+        <button
+          onClick={() => responder("aceptar")}
+          disabled={cargando}
+          className="flex-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-60"
+        >
+          {cargando ? "Procesando…" : "Aceptar"}
+        </button>
+      </div>
     </div>
   );
 }

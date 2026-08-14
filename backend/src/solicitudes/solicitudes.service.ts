@@ -28,8 +28,12 @@ export class SolicitudesService {
     @InjectQueue(BURO_QUEUE) private readonly buroQueue: Queue,
   ) {}
 
-  async crear(clienteId: string, dto: CreateSolicitudDto) {
-    const tasaVigente = await this.configuracionTasas.vigente();
+  async crear(
+    clienteId: string,
+    organizacionId: string,
+    dto: CreateSolicitudDto,
+  ) {
+    const tasaVigente = await this.configuracionTasas.vigente(organizacionId);
     const montoMinimo = Number(tasaVigente.montoMinimo);
     const montoMaximo = Number(tasaVigente.montoMaximo);
 
@@ -79,6 +83,7 @@ export class SolicitudesService {
     await this.prisma.logBuro.create({
       data: {
         solicitudId,
+        clienteId: cliente.id,
         proveedor: respuestaBuro.proveedor,
         score: respuestaBuro.score,
         situacionBcra: respuestaBuro.situacionBcra,
@@ -94,7 +99,10 @@ export class SolicitudesService {
         where: { id: solicitudId },
         data: { estado: EstadoSolicitud.APROBADA, resueltoAt: new Date() },
       });
-      await this.crearPrestamoParaSolicitud(solicitudActualizada);
+      await this.crearPrestamoParaSolicitud(
+        solicitudActualizada,
+        cliente.organizacionId,
+      );
       return;
     }
 
@@ -110,15 +118,16 @@ export class SolicitudesService {
     });
   }
 
-  async listar(estado?: EstadoSolicitud) {
+  async listar(organizacionId: string, estado?: EstadoSolicitud) {
     return this.prisma.solicitud.findMany({
-      where: estado ? { estado } : undefined,
+      where: { estado, cliente: { organizacionId } },
       orderBy: { createdAt: 'desc' },
       include: { cliente: { select: CLIENTE_RESUMEN_SELECT } },
     });
   }
 
-  async obtener(id: string) {
+  /** Uso interno (processor de la cola), sin restricción de organización. */
+  private async obtenerInterno(id: string) {
     const solicitud = await this.prisma.solicitud.findUnique({
       where: { id },
       include: { cliente: { select: CLIENTE_RESUMEN_SELECT } },
@@ -127,16 +136,29 @@ export class SolicitudesService {
     return solicitud;
   }
 
-  async informeBuro(id: string) {
-    await this.obtener(id);
+  async obtener(id: string, organizacionId: string) {
+    const solicitud = await this.obtenerInterno(id);
+    if (solicitud.cliente.organizacionId !== organizacionId) {
+      throw new NotFoundException('Solicitud no encontrada');
+    }
+    return solicitud;
+  }
+
+  async informeBuro(id: string, organizacionId: string) {
+    await this.obtener(id, organizacionId);
     return this.prisma.logBuro.findMany({
       where: { solicitudId: id },
       orderBy: { consultadoEn: 'desc' },
     });
   }
 
-  async decidir(id: string, dto: DecisionSolicitudDto, analistaId: string) {
-    const solicitud = await this.obtener(id);
+  async decidir(
+    id: string,
+    dto: DecisionSolicitudDto,
+    analistaId: string,
+    organizacionId: string,
+  ) {
+    const solicitud = await this.obtener(id, organizacionId);
     if (solicitud.estado !== EstadoSolicitud.EN_REVISION) {
       throw new ForbiddenException(
         'Solo se pueden resolver manualmente solicitudes en revisión',
@@ -152,7 +174,10 @@ export class SolicitudesService {
           resueltoAt: new Date(),
         },
       });
-      return this.crearPrestamoParaSolicitud(solicitudActualizada);
+      return this.crearPrestamoParaSolicitud(
+        solicitudActualizada,
+        organizacionId,
+      );
     }
 
     return this.prisma.solicitud.update({
@@ -166,12 +191,21 @@ export class SolicitudesService {
     });
   }
 
-  private async crearPrestamoParaSolicitud(solicitud: Solicitud) {
+  private async crearPrestamoParaSolicitud(
+    solicitud: Solicitud,
+    organizacionId: string,
+  ) {
     const tasa = await this.prisma.configuracionTasa.findUniqueOrThrow({
       where: { id: solicitud.configuracionTasasId! },
     });
-    return this.prestamos.crearDesdeSolicitud(
-      solicitud,
+    return this.prestamos.crearDesdeOrigen(
+      {
+        organizacionId,
+        clienteId: solicitud.clienteId,
+        montoSolicitado: Number(solicitud.montoSolicitado),
+        cantidadCuotas: solicitud.cantidadCuotas,
+        solicitudId: solicitud.id,
+      },
       Number(tasa.tna),
       Number(tasa.tea),
     );

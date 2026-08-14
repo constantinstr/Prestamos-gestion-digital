@@ -15,16 +15,19 @@ export class PublicConfigController {
 
   @Get('simulador')
   async simular(
+    @Query('organizacionId') organizacionId: string,
     @Query('monto') montoStr: string,
     @Query('cuotas') cuotasStr: string,
   ) {
+    if (!organizacionId)
+      throw new BadRequestException('Debe indicar "organizacionId"');
     const monto = Number(montoStr);
     const cantidadCuotas = Number(cuotasStr);
     if (!monto || !cantidadCuotas) {
       throw new BadRequestException('Debe indicar "monto" y "cuotas"');
     }
 
-    const tasa = await this.configuracionTasas.vigente();
+    const tasa = await this.configuracionTasas.vigente(organizacionId);
     const montoMinimo = Number(tasa.montoMinimo);
     const montoMaximo = Number(tasa.montoMaximo);
     if (monto < montoMinimo || monto > montoMaximo) {
@@ -54,8 +57,10 @@ export class PublicConfigController {
   }
 
   @Get('configuracion')
-  async configuracion() {
-    const tasa = await this.configuracionTasas.vigente();
+  async configuracion(@Query('organizacionId') organizacionId: string) {
+    if (!organizacionId)
+      throw new BadRequestException('Debe indicar "organizacionId"');
+    const tasa = await this.configuracionTasas.vigente(organizacionId);
     return {
       montoMinimo: Number(tasa.montoMinimo),
       montoMaximo: Number(tasa.montoMaximo),

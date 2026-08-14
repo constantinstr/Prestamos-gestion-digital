@@ -5,10 +5,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
-import { TipoDocumentoKyc } from '@prisma/client';
+import { EstadoInvitacion, TipoDocumentoKyc } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { TokenService } from '../auth/token.service';
+import { InvitacionesService } from '../invitaciones/invitaciones.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { LoginClienteDto } from './dto/login-cliente.dto';
 
@@ -18,9 +19,12 @@ export class ClientesService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly tokens: TokenService,
+    private readonly invitaciones: InvitacionesService,
   ) {}
 
   async crear(dto: CreateClienteDto) {
+    const invitacion = await this.invitaciones.obtenerVigente(dto.token);
+
     const existente = await this.prisma.cliente.findFirst({
       where: { OR: [{ dni: dto.dni }, { cuil: dto.cuil }] },
     });
@@ -30,21 +34,36 @@ export class ClientesService {
       );
     }
 
-    const { password, ...datosCliente } = dto;
+    // `token` ya se consumió arriba (obtenerVigente); se excluye para no persistirlo en Cliente.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password, token, ...datosCliente } = dto;
     const passwordHash = await argon2.hash(password);
 
-    const cliente = await this.prisma.cliente.create({
-      data: {
-        ...datosCliente,
-        passwordHash,
-        fechaNacimiento: new Date(dto.fechaNacimiento),
-      },
+    const cliente = await this.prisma.$transaction(async (tx) => {
+      const cliente = await tx.cliente.create({
+        data: {
+          ...datosCliente,
+          organizacionId: invitacion.organizacionId,
+          passwordHash,
+          fechaNacimiento: new Date(dto.fechaNacimiento),
+        },
+      });
+      await tx.invitacionCliente.update({
+        where: { id: invitacion.id },
+        data: {
+          estado: EstadoInvitacion.USADA,
+          usadaEn: new Date(),
+          clienteId: cliente.id,
+        },
+      });
+      return cliente;
     });
 
     const tokens = await this.tokens.generarPar({
       sub: cliente.id,
       email: cliente.email ?? '',
       rol: null as unknown as string,
+      organizacionId: cliente.organizacionId,
       tipo: 'cliente',
     });
 
@@ -99,6 +118,30 @@ export class ClientesService {
     return this.aPublico(await this.obtenerOFallar(clienteId));
   }
 
+  /** Backoffice: solo puede ver clientes de su propia organización. */
+  async obtenerDeOrganizacion(clienteId: string, organizacionId: string) {
+    const cliente = await this.obtenerOFallar(clienteId);
+    if (cliente.organizacionId !== organizacionId) {
+      throw new NotFoundException('Cliente no encontrado');
+    }
+    return this.aPublico(cliente);
+  }
+
+  /** Backoffice: clientes de la organización del usuario autenticado, con su estado de KYC. */
+  async listarDeOrganizacion(organizacionId: string) {
+    const clientes = await this.prisma.cliente.findMany({
+      where: { organizacionId },
+      orderBy: { createdAt: 'desc' },
+      include: { documentos: { select: { tipo: true, verificado: true } } },
+    });
+    return clientes.map(({ documentos, ...cliente }) => ({
+      ...this.aPublico(cliente),
+      kycCompleto: ['DNI_FRENTE', 'DNI_DORSO', 'SELFIE', 'FIRMA'].every(
+        (tipo) => documentos.some((d) => d.tipo === tipo),
+      ),
+    }));
+  }
+
   async misPrestamos(clienteId: string) {
     return this.prisma.prestamo.findMany({
       where: { clienteId },
@@ -108,7 +151,7 @@ export class ClientesService {
 
   async actualizar(
     clienteId: string,
-    dto: Partial<Omit<CreateClienteDto, 'password'>>,
+    dto: Partial<Omit<CreateClienteDto, 'password' | 'token'>>,
   ) {
     await this.obtenerOFallar(clienteId);
     const cliente = await this.prisma.cliente.update({
@@ -136,6 +179,7 @@ export class ClientesService {
       sub: cliente.id,
       email: cliente.email ?? '',
       rol: null as unknown as string,
+      organizacionId: cliente.organizacionId,
       tipo: 'cliente',
     });
 

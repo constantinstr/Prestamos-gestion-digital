@@ -6,6 +6,7 @@ export interface UsuarioAutenticado {
   email: string;
   rol: string | null;
   sucursalId?: number | null;
+  organizacionId: string;
   tipo: 'usuario' | 'cliente';
 }
 

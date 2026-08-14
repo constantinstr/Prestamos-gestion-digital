@@ -3,30 +3,52 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { EstadoPrestamo, Solicitud } from '@prisma/client';
+import { EstadoPrestamo } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { calcularPlanDeCuotas } from './util/amortizacion.util';
+
+/** Datos mínimos necesarios para originar un préstamo, sin importar si viene
+ * de una Solicitud auto-iniciada o de una OfertaPrestamo aceptada. */
+export interface OrigenPrestamo {
+  organizacionId: string;
+  clienteId: string;
+  montoSolicitado: number;
+  cantidadCuotas: number;
+  solicitudId?: string;
+  ofertaId?: string;
+}
+
+/** Contexto de autorización: quién está pidiendo ver/operar el préstamo. */
+export interface ContextoAcceso {
+  organizacionId: string;
+  /** Presente solo cuando quien consulta es el propio cliente dueño del préstamo. */
+  clienteId?: string;
+}
+
+const DIAS_ALERTA_PROXIMO_VENCIMIENTO = 3;
 
 @Injectable()
 export class PrestamosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Se invoca cuando una solicitud pasa a estado APROBADA. Genera el préstamo y su plan de cuotas. */
-  async crearDesdeSolicitud(solicitud: Solicitud, tna: number, tea: number) {
+  /** Genera el préstamo y su plan de cuotas a partir de una Solicitud u Oferta ya aprobada/aceptada. */
+  async crearDesdeOrigen(origen: OrigenPrestamo, tna: number, tea: number) {
     const cuotasCalculadas = calcularPlanDeCuotas(
-      Number(solicitud.montoSolicitado),
-      solicitud.cantidadCuotas,
+      Number(origen.montoSolicitado),
+      origen.cantidadCuotas,
       tna,
     );
 
     return this.prisma.prestamo.create({
       data: {
-        solicitudId: solicitud.id,
-        clienteId: solicitud.clienteId,
-        montoOtorgado: solicitud.montoSolicitado,
+        organizacionId: origen.organizacionId,
+        solicitudId: origen.solicitudId,
+        ofertaId: origen.ofertaId,
+        clienteId: origen.clienteId,
+        montoOtorgado: origen.montoSolicitado,
         tna,
         tea,
-        cantidadCuotas: solicitud.cantidadCuotas,
+        cantidadCuotas: origen.cantidadCuotas,
         estado: EstadoPrestamo.PENDIENTE_ENTREGA,
         cuotas: {
           create: cuotasCalculadas.map((cuota, index) => ({
@@ -45,22 +67,24 @@ export class PrestamosService {
     });
   }
 
-  async obtener(id: string) {
+  async obtener(id: string, contexto: ContextoAcceso) {
     const prestamo = await this.prisma.prestamo.findUnique({ where: { id } });
     if (!prestamo) throw new NotFoundException('Préstamo no encontrado');
+    this.verificarAcceso(prestamo, contexto);
     return prestamo;
   }
 
-  async cuotas(id: string) {
-    await this.obtener(id);
+  async cuotas(id: string, contexto: ContextoAcceso) {
+    await this.obtener(id, contexto);
     return this.prisma.cuota.findMany({
       where: { prestamoId: id },
       orderBy: { numeroCuota: 'asc' },
     });
   }
 
-  async estadoCuenta(id: string) {
-    const cuotas = await this.cuotas(id);
+  async estadoCuenta(id: string, contexto: ContextoAcceso) {
+    const cuotas = await this.cuotas(id, contexto);
+    const hoy = new Date();
     const pagado = cuotas
       .filter((c) => c.estado === 'PAGADA')
       .reduce((sum, c) => sum + Number(c.montoTotal), 0);
@@ -71,17 +95,42 @@ export class PrestamosService {
       (c) => c.estado === 'PENDIENTE' || c.estado === 'VENCIDA',
     );
 
+    const cuotasVencidas = cuotas.filter((c) => c.estado === 'VENCIDA');
+    const diasParaVencimiento = proximaCuota
+      ? Math.ceil(
+          (proximaCuota.fechaVencimiento.getTime() - hoy.getTime()) /
+            (1000 * 60 * 60 * 24),
+        )
+      : null;
+
     return {
       totalPagado: pagado,
       totalPendiente: pendiente,
       proximoVencimiento: proximaCuota?.fechaVencimiento ?? null,
       cantidadCuotasPendientes: cuotas.filter((c) => c.estado !== 'PAGADA')
         .length,
+      alertas: {
+        tieneCuotasVencidas: cuotasVencidas.length > 0,
+        cantidadCuotasVencidas: cuotasVencidas.length,
+        proximoVencimientoEnDias:
+          diasParaVencimiento !== null && diasParaVencimiento >= 0
+            ? diasParaVencimiento
+            : null,
+        proximoVencimientoUrgente:
+          diasParaVencimiento !== null &&
+          diasParaVencimiento >= 0 &&
+          diasParaVencimiento <= DIAS_ALERTA_PROXIMO_VENCIMIENTO,
+      },
     };
   }
 
-  async entregar(id: string, sucursalId: number, usuarioId: string) {
-    const prestamo = await this.obtener(id);
+  async entregar(
+    id: string,
+    sucursalId: number,
+    usuarioId: string,
+    organizacionId: string,
+  ) {
+    const prestamo = await this.obtener(id, { organizacionId });
     if (prestamo.estado !== EstadoPrestamo.PENDIENTE_ENTREGA) {
       throw new ForbiddenException(
         'El préstamo ya fue entregado o no está en condiciones de entrega',
@@ -97,6 +146,21 @@ export class PrestamosService {
         usuarioEntregaId: usuarioId,
       },
     });
+  }
+
+  private verificarAcceso(
+    prestamo: { organizacionId: string; clienteId: string },
+    contexto: ContextoAcceso,
+  ) {
+    if (contexto.clienteId) {
+      if (prestamo.clienteId !== contexto.clienteId) {
+        throw new NotFoundException('Préstamo no encontrado');
+      }
+      return;
+    }
+    if (prestamo.organizacionId !== contexto.organizacionId) {
+      throw new NotFoundException('Préstamo no encontrado');
+    }
   }
 }
 

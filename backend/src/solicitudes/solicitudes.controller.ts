@@ -10,7 +10,10 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { EstadoSolicitud } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type UsuarioAutenticado,
+} from '../common/decorators/current-user.decorator';
 import { Rol } from '../common/enums/rol.enum';
 import { SolicitudesService } from './solicitudes.service';
 import { CreateSolicitudDto } from './dto/create-solicitud.dto';
@@ -22,25 +25,34 @@ export class SolicitudesController {
   constructor(private readonly solicitudesService: SolicitudesService) {}
 
   @Post()
-  crear(@Body() dto: CreateSolicitudDto, @CurrentUser() user: { id: string }) {
-    return this.solicitudesService.crear(user.id, dto);
+  crear(
+    @Body() dto: CreateSolicitudDto,
+    @CurrentUser() user: UsuarioAutenticado,
+  ) {
+    return this.solicitudesService.crear(user.id, user.organizacionId, dto);
   }
 
   @Roles(Rol.ANALISTA_CREDITO, Rol.ADMIN_GENERAL)
   @Get()
-  listar(@Query('estado') estado?: EstadoSolicitud) {
-    return this.solicitudesService.listar(estado);
+  listar(
+    @CurrentUser() user: UsuarioAutenticado,
+    @Query('estado') estado?: EstadoSolicitud,
+  ) {
+    return this.solicitudesService.listar(user.organizacionId, estado);
   }
 
   @Get(':id')
-  obtener(@Param('id') id: string) {
-    return this.solicitudesService.obtener(id);
+  obtener(@Param('id') id: string, @CurrentUser() user: UsuarioAutenticado) {
+    return this.solicitudesService.obtener(id, user.organizacionId);
   }
 
   @Roles(Rol.ANALISTA_CREDITO, Rol.ADMIN_GENERAL)
   @Get(':id/buro')
-  informeBuro(@Param('id') id: string) {
-    return this.solicitudesService.informeBuro(id);
+  informeBuro(
+    @Param('id') id: string,
+    @CurrentUser() user: UsuarioAutenticado,
+  ) {
+    return this.solicitudesService.informeBuro(id, user.organizacionId);
   }
 
   @Roles(Rol.ANALISTA_CREDITO, Rol.ADMIN_GENERAL)
@@ -48,8 +60,13 @@ export class SolicitudesController {
   decidir(
     @Param('id') id: string,
     @Body() dto: DecisionSolicitudDto,
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: UsuarioAutenticado,
   ) {
-    return this.solicitudesService.decidir(id, dto, user.id);
+    return this.solicitudesService.decidir(
+      id,
+      dto,
+      user.id,
+      user.organizacionId,
+    );
   }
 }

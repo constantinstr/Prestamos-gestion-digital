@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
  */
 export const CLIENTE_RESUMEN_SELECT = {
   id: true,
+  organizacionId: true,
   dni: true,
   cuil: true,
   nombres: true,

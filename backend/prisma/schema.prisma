@@ -7,6 +7,29 @@ datasource db {
 }
 
 // ---------------------------------------------------------
+// Multi-tenant: cada Organizacion es un prestamista independiente
+// con su propia cartera de clientes, equipo, sucursales y tasas.
+// ---------------------------------------------------------
+model Organizacion {
+  id          String   @id @default(uuid())
+  nombre      String
+  razonSocial String?  @map("razon_social")
+  cuit        String?  @unique
+  activa      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  usuarios            Usuario[]
+  sucursales          Sucursal[]
+  clientes            Cliente[]
+  configuracionTasas  ConfiguracionTasa[]
+  invitacionesCliente InvitacionCliente[]
+  ofertasPrestamo     OfertaPrestamo[]
+  prestamos           Prestamo[]
+
+  @@map("organizaciones")
+}
+
+// ---------------------------------------------------------
 // RBAC
 // ---------------------------------------------------------
 model Role {
@@ -19,32 +42,37 @@ model Role {
 }
 
 model Sucursal {
-  id        Int        @id @default(autoincrement())
-  nombre    String
-  direccion String
-  telefono  String?
-  activa    Boolean    @default(true)
-  createdAt DateTime   @default(now()) @map("created_at")
-  usuarios  Usuario[]
-  prestamos Prestamo[]
-  pagos     Pago[]
+  id             Int          @id @default(autoincrement())
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id])
+  organizacionId String       @map("organizacion_id")
+  nombre         String
+  direccion      String
+  telefono       String?
+  activa         Boolean      @default(true)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  usuarios       Usuario[]
+  prestamos      Prestamo[]
+  pagos          Pago[]
 
+  @@index([organizacionId])
   @@map("sucursales")
 }
 
 model Usuario {
-  id           String    @id @default(uuid())
-  nombre       String
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  rol          Role      @relation(fields: [rolId], references: [id])
-  rolId        Int       @map("rol_id")
-  sucursal     Sucursal? @relation(fields: [sucursalId], references: [id])
-  sucursalId   Int?      @map("sucursal_id")
-  activo       Boolean   @default(true)
-  ultimoLogin  DateTime? @map("ultimo_login")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id             String       @id @default(uuid())
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id])
+  organizacionId String       @map("organizacion_id")
+  nombre         String
+  email          String       @unique
+  passwordHash   String       @map("password_hash")
+  rol            Role         @relation(fields: [rolId], references: [id])
+  rolId          Int          @map("rol_id")
+  sucursal       Sucursal?    @relation(fields: [sucursalId], references: [id])
+  sucursalId     Int?         @map("sucursal_id")
+  activo         Boolean      @default(true)
+  ultimoLogin    DateTime?    @map("ultimo_login")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
   solicitudesResueltas  Solicitud[]          @relation("AnalistaSolicitud")
   documentosVerificados DocumentoKyc[]       @relation("VerificadorDocumento")
@@ -52,8 +80,11 @@ model Usuario {
   pagosRegistrados      Pago[]               @relation("CajeroPago")
   tasasCreadas          ConfiguracionTasa[]  @relation("CreadorTasa")
   mensajesGenerados     MensajeWhatsappLog[] @relation("GeneradorMensaje")
+  invitacionesCreadas   InvitacionCliente[]  @relation("CreadorInvitacion")
+  ofertasCreadas        OfertaPrestamo[]     @relation("OfrecidoPor")
   auditoria             Auditoria[]
 
+  @@index([organizacionId])
   @@map("usuarios")
 }
 
@@ -68,6 +99,10 @@ enum EstadoCliente {
 
 model Cliente {
   id              String        @id @default(uuid())
+  // Un DNI real tiene una única cuenta en toda la plataforma; queda asociado
+  // a la organización que lo invitó/dio de alta primero.
+  organizacion    Organizacion  @relation(fields: [organizacionId], references: [id])
+  organizacionId  String        @map("organizacion_id")
   dni             String        @unique
   cuil            String        @unique
   nombres         String
@@ -84,9 +119,13 @@ model Cliente {
 
   documentos       DocumentoKyc[]
   solicitudes      Solicitud[]
+  ofertas          OfertaPrestamo[]
   prestamos        Prestamo[]
   mensajesWhatsapp MensajeWhatsappLog[]
+  invitacion       InvitacionCliente?
+  logBuros         LogBuro[]
 
+  @@index([organizacionId])
   @@map("clientes")
 }
 
@@ -115,28 +154,63 @@ model DocumentoKyc {
 }
 
 // ---------------------------------------------------------
+// Invitación de cliente: el admin/analista genera un link único que envía
+// al cliente para que se registre y quede asociado a su organización.
+// ---------------------------------------------------------
+enum EstadoInvitacion {
+  PENDIENTE
+  USADA
+  EXPIRADA
+  REVOCADA
+}
+
+model InvitacionCliente {
+  id             String           @id @default(uuid())
+  organizacion   Organizacion     @relation(fields: [organizacionId], references: [id])
+  organizacionId String           @map("organizacion_id")
+  token          String           @unique
+  telefono       String?
+  email          String?
+  estado         EstadoInvitacion @default(PENDIENTE)
+  creadoPor      Usuario          @relation("CreadorInvitacion", fields: [creadoPorId], references: [id])
+  creadoPorId    String           @map("creado_por")
+  cliente        Cliente?         @relation(fields: [clienteId], references: [id])
+  clienteId      String?          @unique @map("cliente_id")
+  expiraEn       DateTime         @map("expira_en")
+  usadaEn        DateTime?        @map("usada_en")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  @@index([organizacionId])
+  @@map("invitaciones_cliente")
+}
+
+// ---------------------------------------------------------
 // Configuración de tasas
 // ---------------------------------------------------------
 model ConfiguracionTasa {
-  id                    Int       @id @default(autoincrement())
+  id                    Int          @id @default(autoincrement())
+  organizacion          Organizacion @relation(fields: [organizacionId], references: [id])
+  organizacionId        String       @map("organizacion_id")
   nombre                String
-  tna                   Decimal   @db.Decimal(6, 3)
-  tea                   Decimal   @db.Decimal(6, 3)
-  moraDiariaPct         Decimal   @default(0) @map("mora_diaria_pct") @db.Decimal(6, 3)
-  gastosAdministrativos Decimal   @default(0) @map("gastos_administrativos") @db.Decimal(12, 2)
-  montoMinimo           Decimal   @map("monto_minimo") @db.Decimal(12, 2)
-  montoMaximo           Decimal   @map("monto_maximo") @db.Decimal(12, 2)
-  cuotasMinimas         Int       @map("cuotas_minimas")
-  cuotasMaximas         Int       @map("cuotas_maximas")
-  vigenteDesde          DateTime  @default(now()) @map("vigente_desde")
-  vigenteHasta          DateTime? @map("vigente_hasta")
-  activo                Boolean   @default(true)
-  creadoPor             Usuario?  @relation("CreadorTasa", fields: [creadoPorId], references: [id])
-  creadoPorId           String?   @map("creado_por")
-  createdAt             DateTime  @default(now()) @map("created_at")
+  tna                   Decimal      @db.Decimal(6, 3)
+  tea                   Decimal      @db.Decimal(6, 3)
+  moraDiariaPct         Decimal      @default(0) @map("mora_diaria_pct") @db.Decimal(6, 3)
+  gastosAdministrativos Decimal      @default(0) @map("gastos_administrativos") @db.Decimal(12, 2)
+  montoMinimo           Decimal      @map("monto_minimo") @db.Decimal(12, 2)
+  montoMaximo           Decimal      @map("monto_maximo") @db.Decimal(12, 2)
+  cuotasMinimas         Int          @map("cuotas_minimas")
+  cuotasMaximas         Int          @map("cuotas_maximas")
+  vigenteDesde          DateTime     @default(now()) @map("vigente_desde")
+  vigenteHasta          DateTime?    @map("vigente_hasta")
+  activo                Boolean      @default(true)
+  creadoPor             Usuario?     @relation("CreadorTasa", fields: [creadoPorId], references: [id])
+  creadoPorId           String?      @map("creado_por")
+  createdAt             DateTime     @default(now()) @map("created_at")
 
   solicitudes Solicitud[]
+  ofertas     OfertaPrestamo[]
 
+  @@index([organizacionId])
   @@map("configuracion_tasas")
 }
 
@@ -191,18 +265,73 @@ enum ProveedorBuro {
   BCRA
 }
 
+// Se consulta al validar el KYC de un cliente (clienteId) y, opcionalmente,
+// al resolver una Solicitud auto-iniciada (solicitudId) — al menos uno de
+// los dos debe estar presente.
 model LogBuro {
   id            String        @id @default(uuid())
-  solicitud     Solicitud     @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
-  solicitudId   String        @map("solicitud_id")
+  cliente       Cliente?      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId     String?       @map("cliente_id")
+  solicitud     Solicitud?    @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  solicitudId   String?       @map("solicitud_id")
   proveedor     ProveedorBuro
   score         Int?
   situacionBcra Int?          @map("situacion_bcra")
   respuestaRaw  Json          @map("respuesta_raw")
   consultadoEn  DateTime      @default(now()) @map("consultado_en")
 
+  @@index([clienteId])
   @@index([solicitudId])
   @@map("logs_buro")
+}
+
+// ---------------------------------------------------------
+// Oferta de préstamo: la organización (Admin/Analista) le ofrece un monto,
+// cuotas y tasa a un cliente de su cartera; el cliente acepta o rechaza.
+// Es el flujo principal de otorgamiento (reemplaza la auto-solicitud para
+// el caso de uso multi-tenant).
+// ---------------------------------------------------------
+enum EstadoOferta {
+  PENDIENTE
+  ACEPTADA
+  RECHAZADA
+  EXPIRADA
+  CANCELADA
+}
+
+model OfertaPrestamo {
+  id                   String             @id @default(uuid())
+  organizacion         Organizacion       @relation(fields: [organizacionId], references: [id])
+  organizacionId       String             @map("organizacion_id")
+  cliente              Cliente            @relation(fields: [clienteId], references: [id])
+  clienteId            String             @map("cliente_id")
+  ofrecidoPor          Usuario            @relation("OfrecidoPor", fields: [ofrecidoPorId], references: [id])
+  ofrecidoPorId        String             @map("ofrecido_por")
+  montoOfrecido        Decimal            @map("monto_ofrecido") @db.Decimal(12, 2)
+  cantidadCuotas       Int                @map("cantidad_cuotas")
+  tna                  Decimal            @db.Decimal(6, 3)
+  tea                  Decimal            @db.Decimal(6, 3)
+  configuracionTasa    ConfiguracionTasa? @relation(fields: [configuracionTasasId], references: [id])
+  configuracionTasasId Int?               @map("configuracion_tasas_id")
+  estado               EstadoOferta       @default(PENDIENTE)
+  expiraEn             DateTime?          @map("expira_en")
+  motivoRechazo        String?            @map("motivo_rechazo")
+  // Aceptación con trazabilidad forense (clickwrap): IP, user-agent, hash del
+  // documento con los términos exactos aceptados. No reemplaza asesoramiento
+  // legal sobre ejecutabilidad judicial; ver nota en OfertasService.
+  aceptadaEn           DateTime?          @map("aceptada_en")
+  aceptadaIp           String?            @map("aceptada_ip")
+  aceptadaUserAgent    String?            @map("aceptada_user_agent")
+  hashDocumento        String?            @map("hash_documento")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  prestamo Prestamo?
+
+  @@index([organizacionId])
+  @@index([clienteId])
+  @@index([estado])
+  @@map("ofertas_prestamo")
 }
 
 // ---------------------------------------------------------
@@ -217,28 +346,36 @@ enum EstadoPrestamo {
 }
 
 model Prestamo {
-  id                String         @id @default(uuid())
-  solicitud         Solicitud      @relation(fields: [solicitudId], references: [id])
-  solicitudId       String         @unique @map("solicitud_id")
-  cliente           Cliente        @relation(fields: [clienteId], references: [id])
-  clienteId         String         @map("cliente_id")
-  montoOtorgado     Decimal        @map("monto_otorgado") @db.Decimal(12, 2)
-  tna               Decimal        @db.Decimal(6, 3)
-  tea               Decimal        @db.Decimal(6, 3)
-  cantidadCuotas    Int            @map("cantidad_cuotas")
-  fechaDesembolso   DateTime?      @map("fecha_desembolso") @db.Date
-  estado            EstadoPrestamo @default(PENDIENTE_ENTREGA)
-  sucursalEntrega   Sucursal?      @relation(fields: [sucursalEntregaId], references: [id])
-  sucursalEntregaId Int?           @map("sucursal_entrega_id")
-  usuarioEntrega    Usuario?       @relation("UsuarioEntrega", fields: [usuarioEntregaId], references: [id])
-  usuarioEntregaId  String?        @map("usuario_entrega_id")
-  createdAt         DateTime       @default(now()) @map("created_at")
-  updatedAt         DateTime       @updatedAt @map("updated_at")
+  id                String          @id @default(uuid())
+  organizacion      Organizacion    @relation(fields: [organizacionId], references: [id])
+  organizacionId    String          @map("organizacion_id")
+  // Un préstamo se origina de una Solicitud auto-iniciada o de una Oferta
+  // hecha por la organización; exactamente una de las dos debe estar presente
+  // (validado en PrestamosService, no expresable como constraint simple).
+  solicitud         Solicitud?      @relation(fields: [solicitudId], references: [id])
+  solicitudId       String?         @unique @map("solicitud_id")
+  oferta            OfertaPrestamo? @relation(fields: [ofertaId], references: [id])
+  ofertaId          String?         @unique @map("oferta_id")
+  cliente           Cliente         @relation(fields: [clienteId], references: [id])
+  clienteId         String          @map("cliente_id")
+  montoOtorgado     Decimal         @map("monto_otorgado") @db.Decimal(12, 2)
+  tna               Decimal         @db.Decimal(6, 3)
+  tea               Decimal         @db.Decimal(6, 3)
+  cantidadCuotas    Int             @map("cantidad_cuotas")
+  fechaDesembolso   DateTime?       @map("fecha_desembolso") @db.Date
+  estado            EstadoPrestamo  @default(PENDIENTE_ENTREGA)
+  sucursalEntrega   Sucursal?       @relation(fields: [sucursalEntregaId], references: [id])
+  sucursalEntregaId Int?            @map("sucursal_entrega_id")
+  usuarioEntrega    Usuario?        @relation("UsuarioEntrega", fields: [usuarioEntregaId], references: [id])
+  usuarioEntregaId  String?         @map("usuario_entrega_id")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
 
   cuotas           Cuota[]
   pagos            Pago[]
   mensajesWhatsapp MensajeWhatsappLog[]
 
+  @@index([organizacionId])
   @@index([clienteId])
   @@index([estado])
   @@map("prestamos")

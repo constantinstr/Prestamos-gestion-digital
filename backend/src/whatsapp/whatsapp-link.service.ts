@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { TipoMensajeWhatsapp } from '@prisma/client';
@@ -54,13 +54,21 @@ export class WhatsappLinkService {
     prestamoId: string,
     cuotaId: string,
     generadoPorId: string,
+    organizacionId: string,
   ) {
-    const cuota = await this.prisma.cuota.findUniqueOrThrow({
+    const cuota = await this.prisma.cuota.findUnique({
       where: { id: cuotaId },
       include: {
         prestamo: { include: { cliente: true, sucursalEntrega: true } },
       },
     });
+    if (
+      !cuota ||
+      cuota.prestamo.organizacionId !== organizacionId ||
+      cuota.prestamoId !== prestamoId
+    ) {
+      throw new NotFoundException('Cuota no encontrada');
+    }
     const { cliente, sucursalEntrega } = cuota.prestamo;
 
     return this.generarYRegistrar(

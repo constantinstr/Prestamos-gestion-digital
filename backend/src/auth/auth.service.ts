@@ -32,6 +32,7 @@ export class AuthService {
       sub: usuario.id,
       email: usuario.email,
       rol: usuario.rol.nombre,
+      organizacionId: usuario.organizacionId,
       tipo: 'usuario',
     });
   }

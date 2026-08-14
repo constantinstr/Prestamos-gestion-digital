@@ -8,6 +8,7 @@ export interface JwtPayload {
   sub: string;
   email: string;
   rol: string;
+  organizacionId: string;
   tipo: 'usuario' | 'cliente';
 }
 
@@ -36,6 +37,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         email: usuario.email,
         rol: usuario.rol.nombre,
         sucursalId: usuario.sucursalId,
+        organizacionId: usuario.organizacionId,
         tipo: 'usuario',
       };
     }
@@ -45,6 +47,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
     if (!cliente || cliente.estado !== 'ACTIVO')
       throw new UnauthorizedException();
-    return { id: cliente.id, email: cliente.email, rol: null, tipo: 'cliente' };
+    return {
+      id: cliente.id,
+      email: cliente.email,
+      rol: null,
+      organizacionId: cliente.organizacionId,
+      tipo: 'cliente',
+    };
   }
 }

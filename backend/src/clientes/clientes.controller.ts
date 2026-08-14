@@ -13,7 +13,12 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Public } from '../common/decorators/public.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+import {
+  CurrentUser,
+  type UsuarioAutenticado,
+} from '../common/decorators/current-user.decorator';
+import { Rol } from '../common/enums/rol.enum';
 import { ClientesService } from './clientes.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UploadDocumentoDto } from './dto/upload-documento.dto';
@@ -66,18 +71,25 @@ export class ClientesController {
   }
 
   @Get('me')
-  me(@CurrentUser() user: { id: string }) {
+  me(@CurrentUser() user: UsuarioAutenticado) {
     return this.clientesService.obtener(user.id);
   }
 
   @Get('me/prestamos')
-  misPrestamos(@CurrentUser() user: { id: string }) {
+  misPrestamos(@CurrentUser() user: UsuarioAutenticado) {
     return this.clientesService.misPrestamos(user.id);
   }
 
+  @Roles(Rol.ADMIN_GENERAL, Rol.ANALISTA_CREDITO, Rol.CAJERO)
+  @Get()
+  listar(@CurrentUser() user: UsuarioAutenticado) {
+    return this.clientesService.listarDeOrganizacion(user.organizacionId);
+  }
+
+  @Roles(Rol.ADMIN_GENERAL, Rol.ANALISTA_CREDITO, Rol.CAJERO)
   @Get(':id')
-  obtener(@Param('id') id: string) {
-    return this.clientesService.obtener(id);
+  obtener(@Param('id') id: string, @CurrentUser() user: UsuarioAutenticado) {
+    return this.clientesService.obtenerDeOrganizacion(id, user.organizacionId);
   }
 
   // TODO: validar que el usuario autenticado (CurrentUser) sea el propio cliente
@@ -85,7 +97,7 @@ export class ClientesController {
   @Patch(':id')
   actualizar(
     @Param('id') id: string,
-    @Body() dto: Partial<Omit<CreateClienteDto, 'password'>>,
+    @Body() dto: Partial<Omit<CreateClienteDto, 'password' | 'token'>>,
   ) {
     return this.clientesService.actualizar(id, dto);
   }

@@ -1,5 +1,16 @@
+"use client";
+
+import { Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { WizardOnboarding } from "@/components/WizardOnboarding";
+
+function SolicitarContenido() {
+  const searchParams = useSearchParams();
+  const tokenInvitacion = searchParams.get("invitacion");
+
+  return <WizardOnboarding tokenInvitacion={tokenInvitacion} />;
+}
 
 export default function SolicitarPage() {
   return (
@@ -8,7 +19,9 @@ export default function SolicitarPage() {
         ← Volver al inicio
       </Link>
       <div className="mt-6 flex flex-1 items-center justify-center">
-        <WizardOnboarding />
+        <Suspense fallback={null}>
+          <SolicitarContenido />
+        </Suspense>
       </div>
     </main>
   );

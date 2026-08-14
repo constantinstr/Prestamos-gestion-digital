@@ -24,11 +24,24 @@ async function main() {
     }),
   ]);
 
+  // Organización de ejemplo para desarrollo local. En producción cada
+  // prestamista crea la suya propia vía POST /organizaciones.
+  const organizacion = await prisma.organizacion.upsert({
+    where: { cuit: '30712345678' },
+    update: {},
+    create: {
+      nombre: 'Presto Cuotas Demo',
+      razonSocial: 'Presto Cuotas Demo SRL',
+      cuit: '30712345678',
+    },
+  });
+
   const sucursal = await prisma.sucursal.upsert({
     where: { id: 1 },
     update: {},
     create: {
       id: 1,
+      organizacionId: organizacion.id,
       nombre: 'Casa Central',
       direccion: 'Av. Siempre Viva 123, CABA',
       telefono: '5491100000000',
@@ -40,6 +53,7 @@ async function main() {
     where: { email: 'admin@prestocuotas.com' },
     update: {},
     create: {
+      organizacionId: organizacion.id,
       nombre: 'Administrador General',
       email: 'admin@prestocuotas.com',
       passwordHash,
@@ -48,10 +62,13 @@ async function main() {
     },
   });
 
-  const tasaVigente = await prisma.configuracionTasa.findFirst({ where: { activo: true } });
+  const tasaVigente = await prisma.configuracionTasa.findFirst({
+    where: { organizacionId: organizacion.id, activo: true },
+  });
   if (!tasaVigente) {
     await prisma.configuracionTasa.create({
       data: {
+        organizacionId: organizacion.id,
         nombre: 'Tasa estándar 2026',
         tna: 65.5,
         tea: 88.2,
@@ -65,7 +82,7 @@ async function main() {
     });
   }
 
-  console.log('Seed completo:', { adminGeneral, analistaCredito, cajero, sucursal });
+  console.log('Seed completo:', { organizacion, adminGeneral, analistaCredito, cajero, sucursal });
 }
 
 main()

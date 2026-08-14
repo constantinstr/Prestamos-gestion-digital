@@ -5,10 +5,7 @@ export interface ApiError {
   message: string | string[];
 }
 
-async function apiFetch<T>(
-  path: string,
-  options: RequestInit & { token?: string } = {},
-): Promise<T> {
+async function apiFetch<T>(path: string, options: RequestInit & { token?: string } = {}): Promise<T> {
   const { token, headers, ...resto } = options;
   const respuesta = await fetch(`${API_URL}${path}`, {
     ...resto,
@@ -34,33 +31,74 @@ async function apiFetch<T>(
 }
 
 // ---------------------------------------------------------
-// Simulador público
+// Organizaciones (alta de un nuevo prestamista) y login backoffice
 // ---------------------------------------------------------
-export interface SimuladorResultado {
-  tna: number;
-  tea: number;
-  cuotaEstimada: number;
-  primerasCuotas: { numeroCuota: number; montoTotal: number }[];
+export interface Organizacion {
+  id: string;
+  nombre: string;
 }
 
-export function simularPrestamo(monto: number, cuotas: number) {
-  const params = new URLSearchParams({ monto: String(monto), cuotas: String(cuotas) });
-  return apiFetch<SimuladorResultado>(`/public/simulador?${params}`);
+export interface SesionUsuario {
+  accessToken: string;
+  refreshToken: string;
 }
 
-export interface ConfiguracionPublica {
-  montoMinimo: number;
-  montoMaximo: number;
-  cuotasMinimas: number;
-  cuotasMaximas: number;
+export interface UsuarioPublico {
+  id: string;
+  nombre: string;
+  email: string;
 }
 
-export function obtenerConfiguracionPublica() {
-  return apiFetch<ConfiguracionPublica>("/public/configuracion");
+export function crearOrganizacion(datos: {
+  nombre: string;
+  razonSocial?: string;
+  cuit?: string;
+  nombreAdmin: string;
+  email: string;
+  password: string;
+}) {
+  return apiFetch<{ organizacion: Organizacion; usuario: UsuarioPublico } & SesionUsuario>("/organizaciones", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function loginUsuario(email: string, password: string) {
+  return apiFetch<SesionUsuario>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
 }
 
 // ---------------------------------------------------------
-// Onboarding / KYC
+// Invitaciones de cliente
+// ---------------------------------------------------------
+export interface Invitacion {
+  id: string;
+  token: string;
+  telefono: string | null;
+  email: string | null;
+  estado: string;
+  createdAt: string;
+  cliente: { id: string; nombres: string; apellidos: string; dni: string } | null;
+}
+
+export function crearInvitacion(token: string, datos: { telefono?: string; email?: string }) {
+  return apiFetch<Invitacion>("/invitaciones", { method: "POST", token, body: JSON.stringify(datos) });
+}
+
+export function listarInvitaciones(token: string) {
+  return apiFetch<Invitacion[]>("/invitaciones", { token });
+}
+
+export function validarInvitacion(tokenInvitacion: string) {
+  return apiFetch<{ organizacion: Organizacion; telefono: string | null; email: string | null }>(
+    `/invitaciones/${tokenInvitacion}`,
+  );
+}
+
+// ---------------------------------------------------------
+// Onboarding / KYC del cliente
 // ---------------------------------------------------------
 export interface ClientePublico {
   id: string;
@@ -72,6 +110,7 @@ export interface ClientePublico {
   telefono: string;
   email: string | null;
   estado: string;
+  kycCompleto?: boolean;
 }
 
 export interface SesionCliente {
@@ -81,6 +120,7 @@ export interface SesionCliente {
 }
 
 export interface CrearClienteInput {
+  token: string;
   dni: string;
   cuil: string;
   nombres: string;
@@ -96,6 +136,10 @@ export function crearCliente(datos: CrearClienteInput) {
     method: "POST",
     body: JSON.stringify(datos),
   });
+}
+
+export function listarClientesOrganizacion(token: string) {
+  return apiFetch<ClientePublico[]>("/clientes", { token });
 }
 
 export type TipoDocumentoKyc = "DNI_FRENTE" | "DNI_DORSO" | "SELFIE";
@@ -126,28 +170,55 @@ export function obtenerMisPrestamos(token: string) {
 }
 
 // ---------------------------------------------------------
-// Solicitudes / Préstamos
+// Ofertas de préstamo
 // ---------------------------------------------------------
-export interface Solicitud {
+export interface Oferta {
   id: string;
-  estado: string;
-  montoSolicitado: string;
+  clienteId: string;
+  montoOfrecido: string;
   cantidadCuotas: number;
+  tna: string;
+  tea: string;
+  estado: string;
+  expiraEn: string | null;
   motivoRechazo: string | null;
+  cliente?: { nombres: string; apellidos: string; dni: string };
 }
 
-export function crearSolicitud(token: string, montoSolicitado: number, cantidadCuotas: number) {
-  return apiFetch<Solicitud>("/solicitudes", {
+export function crearOferta(
+  token: string,
+  datos: { clienteId: string; montoOfrecido: number; cantidadCuotas: number },
+) {
+  return apiFetch<Oferta>("/ofertas", { method: "POST", token, body: JSON.stringify(datos) });
+}
+
+export function listarOfertasOrganizacion(token: string) {
+  return apiFetch<Oferta[]>("/ofertas", { token });
+}
+
+export function misOfertas(token: string) {
+  return apiFetch<Oferta[]>("/ofertas/mias", { token });
+}
+
+export function aceptarOferta(token: string, id: string) {
+  return apiFetch<Prestamo>(`/ofertas/${id}/aceptar`, {
     method: "POST",
     token,
-    body: JSON.stringify({ montoSolicitado, cantidadCuotas }),
+    body: JSON.stringify({ aceptaCondiciones: true }),
   });
 }
 
-export function obtenerSolicitud(token: string, id: string) {
-  return apiFetch<Solicitud>(`/solicitudes/${id}`, { token });
+export function rechazarOferta(token: string, id: string, motivo?: string) {
+  return apiFetch<Oferta>(`/ofertas/${id}/rechazar`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ motivo }),
+  });
 }
 
+// ---------------------------------------------------------
+// Préstamos
+// ---------------------------------------------------------
 export interface Prestamo {
   id: string;
   montoOtorgado: string;
@@ -156,15 +227,36 @@ export interface Prestamo {
   fechaDesembolso: string | null;
 }
 
+export interface AlertasEstadoCuenta {
+  tieneCuotasVencidas: boolean;
+  cantidadCuotasVencidas: number;
+  proximoVencimientoEnDias: number | null;
+  proximoVencimientoUrgente: boolean;
+}
+
 export interface EstadoCuenta {
   totalPagado: number;
   totalPendiente: number;
   proximoVencimiento: string | null;
   cantidadCuotasPendientes: number;
+  alertas: AlertasEstadoCuenta;
 }
 
 export function obtenerEstadoCuenta(token: string, prestamoId: string) {
   return apiFetch<EstadoCuenta>(`/prestamos/${prestamoId}/estado-cuenta`, { token });
+}
+
+export interface Cuota {
+  id: string;
+  numeroCuota: number;
+  montoTotal: string;
+  fechaVencimiento: string;
+  estado: string;
+  saldoPendiente: string;
+}
+
+export function obtenerCuotas(token: string, prestamoId: string) {
+  return apiFetch<Cuota[]>(`/prestamos/${prestamoId}/cuotas`, { token });
 }
 
 export function generarLinkWhatsapp(token: string, prestamoId: string) {
@@ -172,4 +264,17 @@ export function generarLinkWhatsapp(token: string, prestamoId: string) {
     method: "POST",
     token,
   });
+}
+
+// ---------------------------------------------------------
+// Alertas (dashboard backoffice)
+// ---------------------------------------------------------
+export interface ResumenAlertas {
+  prestamosEnMora: number;
+  cuotasVencidas: number;
+  cuotasPorVencerPronto: number;
+}
+
+export function obtenerResumenAlertas(token: string) {
+  return apiFetch<ResumenAlertas>("/alertas/resumen", { token });
 }

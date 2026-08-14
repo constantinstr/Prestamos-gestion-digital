@@ -1,41 +1,57 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   crearCliente,
-  crearSolicitud,
   firmarDigital,
-  obtenerSolicitud,
   subirDocumentoKyc,
+  validarInvitacion,
+  type Organizacion,
   type SesionCliente,
-  type Solicitud,
 } from "@/lib/api";
 import { guardarSesion } from "@/lib/sesion-cliente";
 
-type Paso = "datos" | "dni-frente" | "dni-dorso" | "selfie" | "firma" | "solicitud" | "resultado";
+type Paso = "validando" | "datos" | "dni-frente" | "dni-dorso" | "selfie" | "firma" | "listo";
 
-const formatoMoneda = new Intl.NumberFormat("es-AR", {
-  style: "currency",
-  currency: "ARS",
-  maximumFractionDigits: 0,
-});
-
-const ESTADOS_EN_CURSO = ["PENDIENTE", "CONSULTANDO_BURO", "EN_REVISION"];
-
-export function WizardOnboarding() {
-  const [paso, setPaso] = useState<Paso>("datos");
+export function WizardOnboarding({ tokenInvitacion }: { tokenInvitacion: string | null }) {
+  const [paso, setPaso] = useState<Paso>("validando");
+  const [organizacion, setOrganizacion] = useState<Organizacion | null>(null);
   const [sesion, setSesion] = useState<SesionCliente | null>(null);
-  const [solicitud, setSolicitud] = useState<Solicitud | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
 
+  useEffect(() => {
+    // Validación del token contra el servidor al montar: no hay valor derivable sincrónicamente.
+    if (!tokenInvitacion) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setError("Este enlace de invitación no es válido. Pedile a tu prestamista que te reenvíe el link.");
+      return;
+    }
+    validarInvitacion(tokenInvitacion)
+      .then((datos) => {
+        setOrganizacion(datos.organizacion);
+        setPaso("datos");
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "El enlace de invitación no es válido o expiró");
+      });
+  }, [tokenInvitacion]);
+
   return (
     <div className="mx-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/60">
+      {organizacion && paso !== "validando" && (
+        <p className="mb-4 text-center text-sm text-slate-500">Te invitó {organizacion.nombre}</p>
+      )}
+
       <ProgresoPasos pasoActual={paso} />
 
       {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
-      {paso === "datos" && (
+      {paso === "validando" && !error && (
+        <p className="mt-6 text-center text-sm text-slate-500">Validando tu invitación…</p>
+      )}
+
+      {paso === "datos" && tokenInvitacion && (
         <PasoDatosPersonales
           cargando={cargando}
           onError={setError}
@@ -43,7 +59,7 @@ export function WizardOnboarding() {
             setCargando(true);
             setError(null);
             try {
-              const nuevaSesion = await crearCliente(datos);
+              const nuevaSesion = await crearCliente({ ...datos, token: tokenInvitacion });
               guardarSesion(nuevaSesion);
               setSesion(nuevaSesion);
               setPaso("dni-frente");
@@ -127,7 +143,7 @@ export function WizardOnboarding() {
             setError(null);
             try {
               await firmarDigital(sesion.cliente.id);
-              setPaso("solicitud");
+              setPaso("listo");
             } catch (err) {
               setError(err instanceof Error ? err.message : "No se pudo registrar la firma");
             } finally {
@@ -137,32 +153,7 @@ export function WizardOnboarding() {
         />
       )}
 
-      {paso === "solicitud" && sesion && (
-        <PasoSolicitud
-          cargando={cargando}
-          onSubmit={async (monto, cuotas) => {
-            setCargando(true);
-            setError(null);
-            try {
-              const nuevaSolicitud = await crearSolicitud(sesion.accessToken, monto, cuotas);
-              setSolicitud(nuevaSolicitud);
-              setPaso("resultado");
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "No se pudo crear la solicitud");
-            } finally {
-              setCargando(false);
-            }
-          }}
-        />
-      )}
-
-      {paso === "resultado" && sesion && solicitud && (
-        <PasoResultado
-          solicitudInicial={solicitud}
-          token={sesion.accessToken}
-          onError={setError}
-        />
-      )}
+      {paso === "listo" && <PasoListo />}
     </div>
   );
 }
@@ -173,11 +164,11 @@ const ORDEN_PASOS: { paso: Paso; etiqueta: string }[] = [
   { paso: "dni-dorso", etiqueta: "DNI dorso" },
   { paso: "selfie", etiqueta: "Selfie" },
   { paso: "firma", etiqueta: "Firma" },
-  { paso: "solicitud", etiqueta: "Monto" },
-  { paso: "resultado", etiqueta: "Resultado" },
+  { paso: "listo", etiqueta: "Listo" },
 ];
 
 function ProgresoPasos({ pasoActual }: { pasoActual: Paso }) {
+  if (pasoActual === "validando") return null;
   const indiceActual = ORDEN_PASOS.findIndex((p) => p.paso === pasoActual);
   return (
     <div className="flex items-center gap-1.5">
@@ -333,8 +324,7 @@ function PasoFirma({ cargando, onSubmit }: { cargando: boolean; onSubmit: () => 
     <div className="mt-6 space-y-4">
       <h2 className="text-xl font-semibold text-slate-900">Firma digital</h2>
       <p className="text-sm text-slate-500">
-        Revisá y aceptá los Términos y Condiciones y la Política de Privacidad para continuar con
-        tu solicitud.
+        Revisá y aceptá los Términos y Condiciones y la Política de Privacidad para continuar.
       </p>
       <label className="flex items-start gap-2 text-sm text-slate-700">
         <input
@@ -357,130 +347,20 @@ function PasoFirma({ cargando, onSubmit }: { cargando: boolean; onSubmit: () => 
   );
 }
 
-function PasoSolicitud({
-  cargando,
-  onSubmit,
-}: {
-  cargando: boolean;
-  onSubmit: (monto: number, cuotas: number) => void;
-}) {
-  const [monto, setMonto] = useState(150000);
-  const [cuotas, setCuotas] = useState(12);
-
-  return (
-    <div className="mt-6 space-y-5">
-      <h2 className="text-xl font-semibold text-slate-900">¿Cuánto necesitás?</h2>
-
-      <div>
-        <label className="flex justify-between text-sm font-medium text-slate-700">
-          <span>Monto a solicitar</span>
-          <span className="font-semibold text-indigo-600">{formatoMoneda.format(monto)}</span>
-        </label>
-        <input
-          type="range"
-          min={20000}
-          max={2000000}
-          step={5000}
-          value={monto}
-          onChange={(e) => setMonto(Number(e.target.value))}
-          className="mt-2 w-full accent-indigo-600"
-        />
-      </div>
-
-      <div>
-        <label className="flex justify-between text-sm font-medium text-slate-700">
-          <span>Cantidad de cuotas</span>
-          <span className="font-semibold text-indigo-600">{cuotas}</span>
-        </label>
-        <input
-          type="range"
-          min={3}
-          max={24}
-          step={1}
-          value={cuotas}
-          onChange={(e) => setCuotas(Number(e.target.value))}
-          className="mt-2 w-full accent-indigo-600"
-        />
-      </div>
-
-      <button
-        type="button"
-        disabled={cargando}
-        onClick={() => onSubmit(monto, cuotas)}
-        className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-medium text-white transition hover:bg-indigo-500 disabled:opacity-60"
-      >
-        {cargando ? "Enviando solicitud…" : "Solicitar préstamo"}
-      </button>
-    </div>
-  );
-}
-
-function PasoResultado({
-  solicitudInicial,
-  token,
-  onError,
-}: {
-  solicitudInicial: Solicitud;
-  token: string;
-  onError: (mensaje: string | null) => void;
-}) {
-  const [solicitud, setSolicitud] = useState(solicitudInicial);
-  const [consultando, setConsultando] = useState(false);
-
-  async function actualizar() {
-    setConsultando(true);
-    onError(null);
-    try {
-      const actualizada = await obtenerSolicitud(token, solicitud.id);
-      setSolicitud(actualizada);
-    } catch (err) {
-      onError(err instanceof Error ? err.message : "No se pudo consultar el estado");
-    } finally {
-      setConsultando(false);
-    }
-  }
-
-  const enCurso = ESTADOS_EN_CURSO.includes(solicitud.estado);
-
+function PasoListo() {
   return (
     <div className="mt-6 space-y-4 text-center">
-      <h2 className="text-xl font-semibold text-slate-900">Estado de tu solicitud</h2>
-      <EstadoBadge estado={solicitud.estado} />
-
-      {solicitud.motivoRechazo && (
-        <p className="text-sm text-slate-500">{solicitud.motivoRechazo}</p>
-      )}
-
-      {enCurso && (
-        <p className="text-sm text-slate-500">
-          Estamos evaluando tu solicitud. Esto puede tardar unos minutos.
-        </p>
-      )}
-
-      <button
-        type="button"
-        onClick={actualizar}
-        disabled={consultando}
-        className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-60"
+      <h2 className="text-xl font-semibold text-slate-900">¡Listo!</h2>
+      <p className="text-sm text-slate-500">
+        Registramos tus datos y documentos. Tu prestamista va a revisar tu información y, si todo está en orden,
+        te va a ofrecer un préstamo directamente en tu portal.
+      </p>
+      <a
+        href="/portal"
+        className="mt-2 inline-block w-full rounded-lg bg-indigo-600 px-4 py-3 font-medium text-white transition hover:bg-indigo-500"
       >
-        {consultando ? "Consultando…" : "Actualizar estado"}
-      </button>
+        Ir a mi portal
+      </a>
     </div>
-  );
-}
-
-const ESTILOS_ESTADO: Record<string, string> = {
-  APROBADA: "bg-green-50 text-green-700",
-  PRE_APROBADA: "bg-green-50 text-green-700",
-  RECHAZADA_AUTOMATICA: "bg-red-50 text-red-700",
-  RECHAZADA_MANUAL: "bg-red-50 text-red-700",
-};
-
-function EstadoBadge({ estado }: { estado: string }) {
-  const estilo = ESTILOS_ESTADO[estado] ?? "bg-amber-50 text-amber-700";
-  return (
-    <span className={`inline-block rounded-full px-4 py-1.5 text-sm font-medium ${estilo}`}>
-      {estado.replaceAll("_", " ")}
-    </span>
   );
 }

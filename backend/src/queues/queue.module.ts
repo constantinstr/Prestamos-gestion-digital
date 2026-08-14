@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
 export const BURO_QUEUE = 'buro';
+export const MANTENIMIENTO_QUEUE = 'mantenimiento';
 
 @Module({
   imports: [
@@ -20,7 +21,10 @@ export const BURO_QUEUE = 'buro';
         },
       }),
     }),
-    BullModule.registerQueue({ name: BURO_QUEUE }),
+    BullModule.registerQueue(
+      { name: BURO_QUEUE },
+      { name: MANTENIMIENTO_QUEUE },
+    ),
   ],
   exports: [BullModule],
 })

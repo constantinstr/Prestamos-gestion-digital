@@ -1,7 +1,10 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Roles } from '../common/decorators/roles.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type UsuarioAutenticado,
+} from '../common/decorators/current-user.decorator';
 import { Rol } from '../common/enums/rol.enum';
 import { ConfiguracionTasasService } from './configuracion-tasas.service';
 import { CrearConfiguracionTasaDto } from './dto/crear-configuracion-tasa.dto';
@@ -13,15 +16,18 @@ export class ConfiguracionTasasController {
   constructor(private readonly service: ConfiguracionTasasService) {}
 
   @Get()
-  vigente() {
-    return this.service.vigente();
+  vigente(@CurrentUser() user: UsuarioAutenticado) {
+    return this.service.vigente(user.organizacionId);
   }
 
   @Post()
   crear(
     @Body() dto: CrearConfiguracionTasaDto,
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: UsuarioAutenticado,
   ) {
-    return this.service.crearVersion({ ...dto, creadoPorId: user.id });
+    return this.service.crearVersion(user.organizacionId, {
+      ...dto,
+      creadoPorId: user.id,
+    });
   }
 }

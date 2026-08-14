@@ -13,10 +13,14 @@ import { RegistrarPagoDto } from './dto/registrar-pago.dto';
 export class CajaService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async buscarCliente(dni?: string, prestamoId?: string) {
+  async buscarCliente(
+    organizacionId: string,
+    dni?: string,
+    prestamoId?: string,
+  ) {
     if (dni) {
-      const cliente = await this.prisma.cliente.findUnique({
-        where: { dni },
+      const cliente = await this.prisma.cliente.findFirst({
+        where: { dni, organizacionId },
         select: {
           ...CLIENTE_RESUMEN_SELECT,
           prestamos: { include: { cuotas: true } },
@@ -26,8 +30,8 @@ export class CajaService {
       return cliente;
     }
     if (prestamoId) {
-      const prestamo = await this.prisma.prestamo.findUnique({
-        where: { id: prestamoId },
+      const prestamo = await this.prisma.prestamo.findFirst({
+        where: { id: prestamoId, organizacionId },
         include: { cliente: { select: CLIENTE_RESUMEN_SELECT }, cuotas: true },
       });
       if (!prestamo) throw new NotFoundException('Préstamo no encontrado');
@@ -41,9 +45,10 @@ export class CajaService {
     dto: RegistrarPagoDto,
     cajeroId: string,
     sucursalId: number,
+    organizacionId: string,
   ) {
-    const cuota = await this.prisma.cuota.findUnique({
-      where: { id: cuotaId },
+    const cuota = await this.prisma.cuota.findFirst({
+      where: { id: cuotaId, prestamo: { organizacionId } },
     });
     if (!cuota) throw new NotFoundException('Cuota no encontrada');
     if (cuota.estado === EstadoCuota.PAGADA) {
@@ -75,9 +80,9 @@ export class CajaService {
     return pago;
   }
 
-  async comprobante(pagoId: string) {
-    const pago = await this.prisma.pago.findUnique({
-      where: { id: pagoId },
+  async comprobante(pagoId: string, organizacionId: string) {
+    const pago = await this.prisma.pago.findFirst({
+      where: { id: pagoId, prestamo: { organizacionId } },
       include: {
         cuota: true,
         prestamo: { include: { cliente: { select: CLIENTE_RESUMEN_SELECT } } },

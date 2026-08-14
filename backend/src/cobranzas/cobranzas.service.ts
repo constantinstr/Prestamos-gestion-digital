@@ -11,12 +11,17 @@ export class CobranzasService {
     private readonly whatsappLink: WhatsappLinkService,
   ) {}
 
-  async vencimientos(desde: Date, hasta: Date, sucursalId?: number) {
+  async vencimientos(
+    organizacionId: string,
+    desde: Date,
+    hasta: Date,
+    sucursalId?: number,
+  ) {
     return this.prisma.cuota.findMany({
       where: {
         estado: { in: [EstadoCuota.PENDIENTE, EstadoCuota.VENCIDA] },
         fechaVencimiento: { gte: desde, lte: hasta },
-        prestamo: sucursalId ? { sucursalEntregaId: sucursalId } : undefined,
+        prestamo: { organizacionId, sucursalEntregaId: sucursalId },
       },
       include: {
         prestamo: { include: { cliente: { select: CLIENTE_RESUMEN_SELECT } } },
@@ -29,11 +34,13 @@ export class CobranzasService {
     prestamoId: string,
     cuotaId: string,
     operadorId: string,
+    organizacionId: string,
   ) {
     return this.whatsappLink.generarLinkRecordatorio(
       prestamoId,
       cuotaId,
       operadorId,
+      organizacionId,
     );
   }
 }
