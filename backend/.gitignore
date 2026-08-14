@@ -3,3 +3,6 @@ node_modules
 .env
 
 /generated/prisma
+
+# Documentos KYC subidos en desarrollo (storage local, nunca en producción)
+/uploads/

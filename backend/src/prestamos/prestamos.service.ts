@@ -34,7 +34,9 @@ export class PrestamosService {
             montoCapital: cuota.montoCapital,
             montoInteres: cuota.montoInteres,
             montoTotal: cuota.montoTotal,
-            saldoPendiente: cuota.saldoPendiente,
+            // Arranca igual al monto total de la cuota; se reduce a medida que
+            // Caja registra pagos (parciales o totales) sobre esa cuota puntual.
+            saldoPendiente: cuota.montoTotal,
             fechaVencimiento: sumarMeses(new Date(), index + 1),
           })),
         },

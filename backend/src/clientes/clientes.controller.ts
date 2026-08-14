@@ -13,6 +13,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Public } from '../common/decorators/public.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ClientesService } from './clientes.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UploadDocumentoDto } from './dto/upload-documento.dto';
@@ -64,6 +65,16 @@ export class ClientesController {
     return this.clientesService.firmar(id);
   }
 
+  @Get('me')
+  me(@CurrentUser() user: { id: string }) {
+    return this.clientesService.obtener(user.id);
+  }
+
+  @Get('me/prestamos')
+  misPrestamos(@CurrentUser() user: { id: string }) {
+    return this.clientesService.misPrestamos(user.id);
+  }
+
   @Get(':id')
   obtener(@Param('id') id: string) {
     return this.clientesService.obtener(id);
@@ -72,7 +83,10 @@ export class ClientesController {
   // TODO: validar que el usuario autenticado (CurrentUser) sea el propio cliente
   // o un rol de backoffice antes de habilitar la edición.
   @Patch(':id')
-  actualizar(@Param('id') id: string, @Body() dto: Partial<CreateClienteDto>) {
+  actualizar(
+    @Param('id') id: string,
+    @Body() dto: Partial<Omit<CreateClienteDto, 'password'>>,
+  ) {
     return this.clientesService.actualizar(id, dto);
   }
 }

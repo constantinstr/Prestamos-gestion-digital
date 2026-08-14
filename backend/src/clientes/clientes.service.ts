@@ -30,9 +30,25 @@ export class ClientesService {
       );
     }
 
-    return this.prisma.cliente.create({
-      data: { ...dto, fechaNacimiento: new Date(dto.fechaNacimiento) },
+    const { password, ...datosCliente } = dto;
+    const passwordHash = await argon2.hash(password);
+
+    const cliente = await this.prisma.cliente.create({
+      data: {
+        ...datosCliente,
+        passwordHash,
+        fechaNacimiento: new Date(dto.fechaNacimiento),
+      },
     });
+
+    const tokens = await this.tokens.generarPar({
+      sub: cliente.id,
+      email: cliente.email ?? '',
+      rol: null as unknown as string,
+      tipo: 'cliente',
+    });
+
+    return { cliente: this.aPublico(cliente), ...tokens };
   }
 
   async subirDocumento(
@@ -80,12 +96,22 @@ export class ClientesService {
   }
 
   async obtener(clienteId: string) {
-    return this.obtenerOFallar(clienteId);
+    return this.aPublico(await this.obtenerOFallar(clienteId));
   }
 
-  async actualizar(clienteId: string, dto: Partial<CreateClienteDto>) {
+  async misPrestamos(clienteId: string) {
+    return this.prisma.prestamo.findMany({
+      where: { clienteId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async actualizar(
+    clienteId: string,
+    dto: Partial<Omit<CreateClienteDto, 'password'>>,
+  ) {
     await this.obtenerOFallar(clienteId);
-    return this.prisma.cliente.update({
+    const cliente = await this.prisma.cliente.update({
       where: { id: clienteId },
       data: {
         ...dto,
@@ -94,6 +120,7 @@ export class ClientesService {
           : undefined,
       },
     });
+    return this.aPublico(cliente);
   }
 
   async loginCliente({ dni, password }: LoginClienteDto) {
@@ -105,12 +132,14 @@ export class ClientesService {
     if (!passwordValida)
       throw new UnauthorizedException('Credenciales inválidas');
 
-    return this.tokens.generarPar({
+    const tokens = await this.tokens.generarPar({
       sub: cliente.id,
       email: cliente.email ?? '',
       rol: null as unknown as string,
       tipo: 'cliente',
     });
+
+    return { cliente: this.aPublico(cliente), ...tokens };
   }
 
   private async obtenerOFallar(clienteId: string) {
@@ -119,5 +148,40 @@ export class ClientesService {
     });
     if (!cliente) throw new NotFoundException('Cliente no encontrado');
     return cliente;
+  }
+
+  private aPublico(cliente: {
+    id: string;
+    dni: string;
+    cuil: string;
+    nombres: string;
+    apellidos: string;
+    fechaNacimiento: Date;
+    telefono: string;
+    email: string | null;
+    estado: string;
+  }) {
+    const {
+      id,
+      dni,
+      cuil,
+      nombres,
+      apellidos,
+      fechaNacimiento,
+      telefono,
+      email,
+      estado,
+    } = cliente;
+    return {
+      id,
+      dni,
+      cuil,
+      nombres,
+      apellidos,
+      fechaNacimiento,
+      telefono,
+      email,
+      estado,
+    };
   }
 }

@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -26,6 +27,8 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
+
+  app.getHttpAdapter().get('/', (_req, res: Response) => res.redirect('/docs'));
 
   await app.listen(process.env.PORT ?? 3000);
 }

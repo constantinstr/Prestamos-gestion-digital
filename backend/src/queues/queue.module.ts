@@ -14,7 +14,8 @@ export const BURO_QUEUE = 'buro';
           url: config.getOrThrow<string>('REDIS_URL'),
           // Evita el flood de reintentos por defecto de ioredis cuando Redis
           // está caído: backoff acotado en vez de reintento inmediato infinito.
-          retryStrategy: (attempts: number) => Math.min(attempts * 1000, 30_000),
+          retryStrategy: (attempts: number) =>
+            Math.min(attempts * 1000, 30_000),
           maxRetriesPerRequest: null,
         },
       }),

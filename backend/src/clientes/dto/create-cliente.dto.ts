@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  MinLength,
 } from 'class-validator';
 
 export class CreateClienteDto {
@@ -44,4 +45,11 @@ export class CreateClienteDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @ApiProperty({
+    description: 'Contraseña para acceder luego al portal de cliente',
+  })
+  @IsString()
+  @MinLength(6)
+  password: string;
 }

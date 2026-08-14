@@ -3,7 +3,9 @@ export interface CuotaCalculada {
   montoCapital: number;
   montoInteres: number;
   montoTotal: number;
-  saldoPendiente: number;
+  /** Saldo de capital del préstamo que queda DESPUÉS de esta cuota (no confundir con
+   * lo que falta pagar de la cuota en sí, que es `montoTotal` hasta que se abone). */
+  saldoCapitalRestante: number;
 }
 
 /**
@@ -34,7 +36,7 @@ export function calcularPlanDeCuotas(
       montoCapital: redondear(capital),
       montoInteres: redondear(interes),
       montoTotal: redondear(capital + interes),
-      saldoPendiente: redondear(saldo),
+      saldoCapitalRestante: redondear(saldo),
     });
   }
 

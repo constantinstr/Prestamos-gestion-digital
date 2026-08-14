@@ -7,6 +7,7 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { EstadoSolicitud, Solicitud } from '@prisma/client';
+import { CLIENTE_RESUMEN_SELECT } from '../common/prisma-selects';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfiguracionTasasService } from '../configuracion-tasas/configuracion-tasas.service';
 import { PrestamosService } from '../prestamos/prestamos.service';
@@ -113,14 +114,14 @@ export class SolicitudesService {
     return this.prisma.solicitud.findMany({
       where: estado ? { estado } : undefined,
       orderBy: { createdAt: 'desc' },
-      include: { cliente: true },
+      include: { cliente: { select: CLIENTE_RESUMEN_SELECT } },
     });
   }
 
   async obtener(id: string) {
     const solicitud = await this.prisma.solicitud.findUnique({
       where: { id },
-      include: { cliente: true },
+      include: { cliente: { select: CLIENTE_RESUMEN_SELECT } },
     });
     if (!solicitud) throw new NotFoundException('Solicitud no encontrada');
     return solicitud;

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { EstadoCuota } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CLIENTE_RESUMEN_SELECT } from '../common/prisma-selects';
 import { WhatsappLinkService } from '../whatsapp/whatsapp-link.service';
 
 @Injectable()
@@ -17,7 +18,9 @@ export class CobranzasService {
         fechaVencimiento: { gte: desde, lte: hasta },
         prestamo: sucursalId ? { sucursalEntregaId: sucursalId } : undefined,
       },
-      include: { prestamo: { include: { cliente: true } } },
+      include: {
+        prestamo: { include: { cliente: { select: CLIENTE_RESUMEN_SELECT } } },
+      },
       orderBy: { fechaVencimiento: 'asc' },
     });
   }

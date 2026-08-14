@@ -6,6 +6,7 @@ import {
 import { randomUUID } from 'crypto';
 import { EstadoCuota } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CLIENTE_RESUMEN_SELECT } from '../common/prisma-selects';
 import { RegistrarPagoDto } from './dto/registrar-pago.dto';
 
 @Injectable()
@@ -16,7 +17,10 @@ export class CajaService {
     if (dni) {
       const cliente = await this.prisma.cliente.findUnique({
         where: { dni },
-        include: { prestamos: { include: { cuotas: true } } },
+        select: {
+          ...CLIENTE_RESUMEN_SELECT,
+          prestamos: { include: { cuotas: true } },
+        },
       });
       if (!cliente) throw new NotFoundException('Cliente no encontrado');
       return cliente;
@@ -24,7 +28,7 @@ export class CajaService {
     if (prestamoId) {
       const prestamo = await this.prisma.prestamo.findUnique({
         where: { id: prestamoId },
-        include: { cliente: true, cuotas: true },
+        include: { cliente: { select: CLIENTE_RESUMEN_SELECT }, cuotas: true },
       });
       if (!prestamo) throw new NotFoundException('Préstamo no encontrado');
       return prestamo;
@@ -76,7 +80,7 @@ export class CajaService {
       where: { id: pagoId },
       include: {
         cuota: true,
-        prestamo: { include: { cliente: true } },
+        prestamo: { include: { cliente: { select: CLIENTE_RESUMEN_SELECT } } },
         sucursal: true,
       },
     });

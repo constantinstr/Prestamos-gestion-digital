@@ -1,7 +1,10 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Roles } from '../common/decorators/roles.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type UsuarioAutenticado,
+} from '../common/decorators/current-user.decorator';
 import { Rol } from '../common/enums/rol.enum';
 import { PrestamosService } from './prestamos.service';
 import { EntregaPrestamoDto } from './dto/entrega-prestamo.dto';
@@ -43,13 +46,16 @@ export class PrestamosController {
   @Post(':id/estado-cuenta/whatsapp')
   async linkWhatsapp(
     @Param('id') id: string,
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: UsuarioAutenticado,
   ) {
     const prestamo = await this.prestamosService.obtener(id);
+    // `generado_por` referencia a `usuarios` (backoffice); cuando el propio
+    // cliente genera el enlace desde su portal, debe quedar en null.
+    const generadoPorId = user.tipo === 'usuario' ? user.id : undefined;
     return this.whatsappLink.generarLinkEstadoCuenta(
       prestamo.clienteId,
       id,
-      user?.id,
+      generadoPorId,
     );
   }
 }
