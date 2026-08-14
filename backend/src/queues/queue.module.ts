@@ -10,7 +10,13 @@ export const BURO_QUEUE = 'buro';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        connection: { url: config.getOrThrow<string>('REDIS_URL') },
+        connection: {
+          url: config.getOrThrow<string>('REDIS_URL'),
+          // Evita el flood de reintentos por defecto de ioredis cuando Redis
+          // está caído: backoff acotado en vez de reintento inmediato infinito.
+          retryStrategy: (attempts: number) => Math.min(attempts * 1000, 30_000),
+          maxRetriesPerRequest: null,
+        },
       }),
     }),
     BullModule.registerQueue({ name: BURO_QUEUE }),
